@@ -69,8 +69,8 @@ public class CreationSimpleTerrain : MonoBehaviour
     public float hauteurTexture = 20f;
 
 
-    //[Header("Normales")]
 
+    //[Header("Normales")]
     public enum ModeNormale
     {
         Basique,
@@ -88,6 +88,15 @@ public class CreationSimpleTerrain : MonoBehaviour
     public float vitesseRotationCamera = 80f;
 
     public float vitesseRotationTerrain = 50f;
+
+    // --- NOUVEAUX PARAMÈTRES POUR L'EXERCICE 1 ---
+    [Header("Sculpture Interactive (Exercice 1)")]
+    [Tooltip("Ajoutez des courbes allant de X=0 à X=1, et Y=0 à Y=1")]
+    public AnimationCurve[] patternsDeformation;
+    public float rayonDeformation = 15f;
+    public float intensiteMaxDeformation = 10f;
+    private int p_indexPatternCourant = 0;
+    private float p_cooldownScroll = 0f; // Evite les changement de pattern trop rapides lors du scroll de la souris
 
 
     // --------------------------------------------------------------------
@@ -1057,7 +1066,9 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         gererCamera();
 
-        gererPicking();
+        //gererPicking();
+
+        gererSculptureTerrain();
 
         gererAffichageNormales();
 
@@ -1595,16 +1606,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             )
         );
 
-
-        GUILayout.Label(
-            "TP3 - GENERATION PROCEDURALE DE TERRAIN",
-            GUI.skin.GetStyle("label")
-        );
-
-
-        GUILayout.Space(10);
-
-
         GUILayout.Label(
             "INFORMATIONS DU MAILLAGE"
         );
@@ -1615,30 +1616,17 @@ public class CreationSimpleTerrain : MonoBehaviour
             GUILayout.Label(
                 "Vertices : "
                 + p_vertices.Length
-            );
-
-            GUILayout.Label(
-                "Triangles : "
+                + "     Triangles : "
                 + (p_triangles.Length / 3)
-            );
-
-            GUILayout.Label(
-                "Resolution : "
+                + "     Resolution : "
                 + resolution
                 + " x "
                 + resolution
-            );
-
-            GUILayout.Label(
-                "Mémoire approximative : "
+                + "     Mémoire approximative : "
                 + calculerMemoireMesh()
                 + " Ko"
             );
         }
-
-
-        GUILayout.Space(10);
-
 
         GUILayout.Label(
             "PARAMETRES"
@@ -1648,21 +1636,11 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Label(
             "Mode : "
             + choixModeDeformation
-        );
-
-        GUILayout.Label(
-            "Fonction : "
+            + "     Fonction : "
             + typeFonction
-        );
-
-        GUILayout.Label(
-            "Normales : "
+            + "     Normales : "
             + modeNormale
         );
-
-
-        GUILayout.Space(10);
-
 
         GUILayout.Label(
             "INTERACTIONS"
@@ -1670,26 +1648,11 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         GUILayout.Label(
             "F1  : Aide / informations"
-        );
-
-        GUILayout.Label(
-            "F2  : Fonction suivante"
-        );
-
-        GUILayout.Label(
-            "F3  : HeightMap suivante"
-        );
-
-        GUILayout.Label(
-            "F10 : Afficher les normales"
-        );
-
-        GUILayout.Label(
-            "F11 x2 : Revenir au terrain plat"
-        );
-
-        GUILayout.Label(
-            "F12 : Changer le calcul des normales"
+            + "     F2  : Fonction suivante"
+            + "     F3  : HeightMap suivante"
+            + "     F10 : Afficher les normales"
+            + "     F11 x2 : Revenir au terrain plat"
+            + "     F12 : Changer le calcul des normales"
         );
 
         GUILayout.Label(
@@ -1702,16 +1665,41 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         GUILayout.Label(
             "Q / E : descendre / monter"
+            + "     Flèches : tourner la caméra"
+            + "     R : faire tourner le terrain"
         );
 
         GUILayout.Label(
-            "Flèches : tourner la caméra"
+            "SCULPTURE INTERACTIVE (EXERCICE 1)"
         );
 
         GUILayout.Label(
-            "R : faire tourner le terrain"
+            "Pattern Actif : " + p_indexPatternCourant
+            + "     Intensité Max : " + intensiteMaxDeformation
+            + "     Rayon : " + rayonDeformation
         );
 
+        GUILayout.Label(
+            "INTERACTIONS"
+        );
+
+        GUILayout.Label(
+            "Clic Gauche : Sculpter (Elévation)"
+            + "       Clic Droit : Sculpter (Dépression)"
+            + " Touche Espace : Prévisualiser la zone du pattern"
+
+        );
+
+        GUILayout.Label(
+            "Molette + SHIFT : Varier l'intensité"
+        );
+
+        GUILayout.Label(
+            "Molette + CTRL : Varier le rayon"
+        );
+        GUILayout.Label(
+            "Molette + ALT : Changer de pattern"
+        );
 
         GUILayout.EndArea();
     }
@@ -1752,4 +1740,360 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         return memoire / 1024;
     }
+
+
+    // --------------------------------------------------------------------
+    // SCULPTURE DU TERRAIN
+    // --------------------------------------------------------------------
+
+    private void gererSculptureTerrain()
+    {
+        if (Mouse.current == null)
+            return;
+
+        if (Keyboard.current == null)
+            return;
+
+
+        // ============================================================
+        // MOLETTE
+        // ============================================================
+
+        float scrollY =
+            Mouse.current.scroll.ReadValue().y;
+
+
+        if (Mathf.Abs(scrollY) > 0.01f)
+        {
+            Debug.Log("MOLETTE = " + scrollY);
+
+
+            // --------------------------------------------------------
+            // SHIFT + MOLETTE = INTENSITE
+            // --------------------------------------------------------
+
+            if (Keyboard.current.shiftKey.isPressed)
+            {
+                float variation =
+                    Mathf.Sign(scrollY);
+
+
+                intensiteMaxDeformation +=
+                    variation;
+
+
+                intensiteMaxDeformation =
+                    Mathf.Max(
+                        1f,
+                        intensiteMaxDeformation
+                    );
+
+
+                Debug.Log(
+                    "SHIFT + MOLETTE -> Intensite = "
+                    + intensiteMaxDeformation
+                );
+            }
+
+
+            // --------------------------------------------------------
+            // CTRL + MOLETTE = RAYON
+            // --------------------------------------------------------
+
+            else if (Keyboard.current.ctrlKey.isPressed)
+            {
+                float variation =
+                    Mathf.Sign(scrollY);
+
+
+                rayonDeformation +=
+                    variation;
+
+
+                rayonDeformation =
+                    Mathf.Max(
+                        1f,
+                        rayonDeformation
+                    );
+
+
+                Debug.Log(
+                    "CTRL + MOLETTE -> Rayon = "
+                    + rayonDeformation
+                );
+            }
+
+
+            // --------------------------------------------------------
+            // ALT + MOLETTE = PATTERN
+            // --------------------------------------------------------
+
+            else if (Keyboard.current.altKey.isPressed)
+            {
+                if (patternsDeformation != null &&
+                    patternsDeformation.Length > 0)
+                {
+                    if (scrollY > 0)
+                    {
+                        p_indexPatternCourant++;
+
+                        if (p_indexPatternCourant >=
+                            patternsDeformation.Length)
+                        {
+                            p_indexPatternCourant = 0;
+                        }
+                    }
+                    else
+                    {
+                        p_indexPatternCourant--;
+
+                        if (p_indexPatternCourant < 0)
+                        {
+                            p_indexPatternCourant =
+                                patternsDeformation.Length - 1;
+                        }
+                    }
+
+
+                    Debug.Log(
+                        "ALT + MOLETTE -> Pattern = "
+                        + p_indexPatternCourant
+                    );
+                }
+            }
+        }
+
+
+        // ============================================================
+        // VERIFICATION DU PATTERN
+        // ============================================================
+
+        if (patternsDeformation == null ||
+            patternsDeformation.Length == 0)
+        {
+            return;
+        }
+
+
+        if (p_indexPatternCourant >=
+            patternsDeformation.Length)
+        {
+            p_indexPatternCourant = 0;
+        }
+
+
+        if (p_indexPatternCourant < 0)
+        {
+            p_indexPatternCourant =
+                patternsDeformation.Length - 1;
+        }
+
+
+        // ============================================================
+        // CLIC / ESPACE
+        // ============================================================
+
+        bool clicGauche =
+            Mouse.current.leftButton.isPressed;
+
+        bool clicDroit =
+            Mouse.current.rightButton.isPressed;
+
+        bool espace =
+            Keyboard.current.spaceKey.isPressed;
+
+
+        if (clicGauche ||
+            clicDroit ||
+            espace)
+        {
+            if (effectuerPicking(out RaycastHit hit))
+            {
+                if (espace)
+                {
+                    previsualiserDeformation(
+                        hit.point
+                    );
+                }
+                else
+                {
+                    appliquerPatternDeformation(
+                        hit.point,
+                        clicGauche
+                    );
+                }
+            }
+        }
+    }
+
+    // --------------------------------------------------------------------
+    // PATTERN DE DEFORMATION
+    // --------------------------------------------------------------------
+
+    private void appliquerPatternDeformation(
+    Vector3 pointMonde,
+    bool elevation)
+{
+    if (p_vertices == null)
+        return;
+
+
+    if (patternsDeformation == null ||
+        patternsDeformation.Length == 0)
+        return;
+
+
+    AnimationCurve courbe =
+        patternsDeformation[p_indexPatternCourant];
+
+
+    if (courbe == null)
+    {
+        Debug.LogWarning(
+            "Le pattern "
+            + p_indexPatternCourant
+            + " est vide."
+        );
+
+        return;
+    }
+
+
+    // ------------------------------------------------------------
+    // Point de collision en espace local
+    // ------------------------------------------------------------
+
+    Vector3 centreLocal =
+        transform.InverseTransformPoint(
+            pointMonde
+        );
+
+
+    float rayon =
+        Mathf.Max(
+            0.01f,
+            rayonDeformation
+        );
+
+
+    float rayonCarre =
+        rayon * rayon;
+
+
+    // ------------------------------------------------------------
+    // Direction de la déformation
+    // ------------------------------------------------------------
+
+    float direction =
+        elevation
+        ? 1f
+        : -1f;
+
+
+    float forceMax =
+        intensiteMaxDeformation
+        * Time.deltaTime
+        * 5f;
+
+
+    bool maillageModifie = false;
+
+
+    // ------------------------------------------------------------
+    // Recherche des vertices dans le voisinage
+    // ------------------------------------------------------------
+
+    for (int i = 0;
+         i < p_vertices.Length;
+         i++)
+    {
+        float dx =
+            p_vertices[i].x
+            - centreLocal.x;
+
+
+        float dz =
+            p_vertices[i].z
+            - centreLocal.z;
+
+
+        float distanceCarree =
+            dx * dx
+            + dz * dz;
+
+
+        // Vertex en dehors du cercle
+        if (distanceCarree > rayonCarre)
+            continue;
+
+
+        // --------------------------------------------------------
+        // Distance normalisée [0 ; 1]
+        // --------------------------------------------------------
+
+        float distance =
+            Mathf.Sqrt(distanceCarree);
+
+
+        float t =
+            distance / rayon;
+
+
+        // --------------------------------------------------------
+        // Application du pattern
+        // --------------------------------------------------------
+
+        float force =
+            courbe.Evaluate(t);
+
+
+        float deformation =
+            direction
+            * force
+            * forceMax;
+
+
+        p_vertices[i].y +=
+            deformation;
+
+
+        maillageModifie = true;
+    }
+
+
+    // ------------------------------------------------------------
+    // Mise à jour du terrain
+    // ------------------------------------------------------------
+
+    if (maillageModifie)
+    {
+        recalculerToutesLesNormales();
+
+        appliquerMesh();
+    }
 }
+
+    // --------------------------------------------------------------------
+    // PREVISUALISATION DE LA DEFORMATION
+    // --------------------------------------------------------------------
+
+    private void previsualiserDeformation(Vector3 pointMonde)
+    {
+        Vector3 centreLocal = transform.InverseTransformPoint(pointMonde);
+        float sqrRayon = rayonDeformation * rayonDeformation;
+
+        for (int i = 0; i < p_vertices.Length; i++)
+        {
+            float dx = p_vertices[i].x - centreLocal.x;
+            float dz = p_vertices[i].z - centreLocal.z;
+
+            if ((dx * dx + dz * dz) <= sqrRayon)
+            {
+                Vector3 positionMondeVertex = transform.TransformPoint(p_vertices[i]);
+                Debug.DrawLine(positionMondeVertex, positionMondeVertex + Vector3.up * 1f, Color.magenta);
+            }
+        }
+    }
+}
+
+
