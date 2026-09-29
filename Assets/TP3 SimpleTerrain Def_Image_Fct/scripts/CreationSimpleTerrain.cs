@@ -1261,7 +1261,6 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-
     // --------------------------------------------------------------------
     // CAMERA
     // --------------------------------------------------------------------
@@ -1274,96 +1273,66 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (Keyboard.current == null)
             return;
 
+        float delta = vitesseCamera * Time.deltaTime;
+        Vector3 direction = Vector3.zero;
 
-        float delta =
-            vitesseCamera * Time.deltaTime;
-
-
-        Vector3 direction =
-            Vector3.zero;
-
-
-        if (Keyboard.current.wKey.isPressed)
+        // --- DÉPLACEMENT ZQSD PHYSIQUE (Touches QWERTY WASD) ---
+        if (Keyboard.current.wKey.isPressed) // AZERTY Z (Avancer)
             direction += p_cam.transform.forward;
 
-        if (Keyboard.current.sKey.isPressed)
+        if (Keyboard.current.sKey.isPressed) // AZERTY S (Reculer)
             direction -= p_cam.transform.forward;
 
-        if (Keyboard.current.dKey.isPressed)
+        if (Keyboard.current.dKey.isPressed) // AZERTY D (Droite)
             direction += p_cam.transform.right;
 
-        if (Keyboard.current.aKey.isPressed)
+        if (Keyboard.current.aKey.isPressed) // AZERTY Q (Gauche)
             direction -= p_cam.transform.right;
 
-        if (Keyboard.current.eKey.isPressed)
+        if (Keyboard.current.eKey.isPressed) // AZERTY E (Monter)
             direction += Vector3.up;
 
-        if (Keyboard.current.qKey.isPressed)
+        if (Keyboard.current.qKey.isPressed) // AZERTY A (Descendre)
             direction -= Vector3.up;
-
 
         if (direction.sqrMagnitude > 0.001f)
         {
-            p_cam.transform.position +=
-                direction.normalized * delta;
+            p_cam.transform.position += direction.normalized * delta;
         }
 
+        // --- ROTATION OKLM PHYSIQUE (Touches QWERTY O, K, L, ;) ---
+        float rotation = vitesseRotationCamera * Time.deltaTime;
 
-        // Rotation caméra avec les flèches.
-        float rotation =
-            vitesseRotationCamera *
-            Time.deltaTime;
-
-
-        if (Keyboard.current.leftArrowKey.isPressed)
+        if (Keyboard.current.kKey.isPressed) // AZERTY K (Gauche)
         {
-            p_cam.transform.Rotate(
-                Vector3.up,
-                -rotation,
-                Space.World
-            );
+            p_cam.transform.Rotate(Vector3.up, -rotation, Space.World);
         }
 
-        if (Keyboard.current.rightArrowKey.isPressed)
+        if (Keyboard.current.semicolonKey.isPressed) // AZERTY M (Droite, touche ";" en QWERTY)
         {
-            p_cam.transform.Rotate(
-                Vector3.up,
-                rotation,
-                Space.World
-            );
+            p_cam.transform.Rotate(Vector3.up, rotation, Space.World);
         }
 
-        if (Keyboard.current.upArrowKey.isPressed)
+        if (Keyboard.current.oKey.isPressed) // AZERTY O (Haut)
         {
-            p_cam.transform.Rotate(
-                Vector3.right,
-                -rotation,
-                Space.Self
-            );
+            p_cam.transform.Rotate(Vector3.right, -rotation, Space.Self);
         }
 
-        if (Keyboard.current.downArrowKey.isPressed)
+        if (Keyboard.current.lKey.isPressed) // AZERTY L (Bas)
         {
-            p_cam.transform.Rotate(
-                Vector3.right,
-                rotation,
-                Space.Self
-            );
+            p_cam.transform.Rotate(Vector3.right, rotation, Space.Self);
         }
 
-
-        // R tourne le terrain.
+        // R tourne le terrain. (Le R est à la même place en AZERTY et QWERTY)
         if (Keyboard.current.rKey.isPressed)
         {
             transform.Rotate(
                 Vector3.up,
-                vitesseRotationTerrain *
-                Time.deltaTime,
+                vitesseRotationTerrain * Time.deltaTime,
                 Space.World
             );
         }
     }
-
 
     // --------------------------------------------------------------------
     // AFFICHAGE DES NORMALES
@@ -1685,15 +1654,15 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            "WASD : Déplacer la caméra"
+            "ZQSD : Déplacer la caméra"
             );
 
         GUILayout.Label(
-            "Q / E : Descendre / Monter"
+            "E / A : Monter / Descendre"
             );
 
         GUILayout.Label(
-            "Flèches : Tourner la caméra"
+            "O/K/L/M : Tourner la caméra"
             );
 
         GUILayout.Label(
@@ -1733,7 +1702,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            "Touche Espace : Prévisualiser la zone du pattern"
+            "Touche Espace : Prévisualiser la zone du pattern (Debug)"
             );
 
         GUILayout.Label(
