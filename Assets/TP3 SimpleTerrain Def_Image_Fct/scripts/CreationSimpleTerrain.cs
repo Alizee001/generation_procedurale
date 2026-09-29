@@ -1591,7 +1591,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 20,
                 20,
                 460,
-                500
+                1100
             ),
             ""
         );
@@ -1602,7 +1602,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 40,
                 35,
                 420,
-                470
+                1090
             )
         );
 
@@ -1614,92 +1614,139 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (p_vertices != null)
         {
             GUILayout.Label(
-                "Vertices : "
-                + p_vertices.Length
-                + "     Triangles : "
-                + (p_triangles.Length / 3)
-                + "     Resolution : "
-                + resolution
-                + " x "
-                + resolution
-                + "     Mémoire approximative : "
-                + calculerMemoireMesh()
-                + " Ko"
-            );
+                $"Vertices : {p_vertices.Length}"
+                );
+
+            GUILayout.Label(
+                $"Triangles : {p_triangles.Length / 3}"
+                );
+
+            GUILayout.Label(
+                $"Resolution : {resolution} x {resolution}"
+                );
+
+            GUILayout.Label(
+                $"Mémoire approximative : {calculerMemoireMesh()} Ko"
+                );
         }
+
+        GUILayout.Space(10);
 
         GUILayout.Label(
             "PARAMETRES"
-        );
-
+            );
 
         GUILayout.Label(
-            "Mode : "
-            + choixModeDeformation
-            + "     Fonction : "
-            + typeFonction
-            + "     Normales : "
-            + modeNormale
-        );
+            $"Mode : {choixModeDeformation}"
+            );
+
+        GUILayout.Label(
+            $"Fonction : {typeFonction}"
+            );
+
+        GUILayout.Label(
+            $"Normales : {modeNormale}"
+            );
+
+        GUILayout.Space(10);
 
         GUILayout.Label(
             "INTERACTIONS"
-        );
+            );
 
         GUILayout.Label(
-            "F1  : Aide / informations"
-            + "     F2  : Fonction suivante"
-            + "     F3  : HeightMap suivante"
-            + "     F10 : Afficher les normales"
-            + "     F11 x2 : Revenir au terrain plat"
-            + "     F12 : Changer le calcul des normales"
-        );
+            "F1 : Aide / informations"
+            );
 
         GUILayout.Label(
-            "Clic gauche : placer une colline"
-        );
+            "F2 : Fonction suivante"
+            );
 
         GUILayout.Label(
-            "WASD : déplacer la caméra"
-        );
+            "F3 : HeightMap suivante"
+            );
 
         GUILayout.Label(
-            "Q / E : descendre / monter"
-            + "     Flèches : tourner la caméra"
-            + "     R : faire tourner le terrain"
-        );
+            "F10 : Afficher les normales"
+            );
+
+        GUILayout.Label(
+            "F11 x2 : Revenir au terrain plat"
+            );
+
+        GUILayout.Label(
+            "F12 : Changer le calcul des normales"
+            );
+
+        GUILayout.Space(5);
+
+        GUILayout.Label(
+            "Clic gauche : Placer une colline"
+            );
+
+        GUILayout.Label(
+            "WASD : Déplacer la caméra"
+            );
+
+        GUILayout.Label(
+            "Q / E : Descendre / Monter"
+            );
+
+        GUILayout.Label(
+            "Flèches : Tourner la caméra"
+            );
+
+        GUILayout.Label(
+            "R : Faire tourner le terrain"
+            );
+
+        GUILayout.Space(10);
 
         GUILayout.Label(
             "SCULPTURE INTERACTIVE (EXERCICE 1)"
-        );
+            );
 
         GUILayout.Label(
-            "Pattern Actif : " + p_indexPatternCourant
-            + "     Intensité Max : " + intensiteMaxDeformation
-            + "     Rayon : " + rayonDeformation
-        );
+            $"Pattern Actif : {p_indexPatternCourant}"
+            );
 
         GUILayout.Label(
-            "INTERACTIONS"
-        );
+            $"Intensité Max : {intensiteMaxDeformation}"
+            );
+
+        GUILayout.Label(
+            $"Rayon : {rayonDeformation}"
+            );
+
+        GUILayout.Space(10);
+
+        GUILayout.Label(
+            "INTERACTIONS SCULPTURE"
+            );
 
         GUILayout.Label(
             "Clic Gauche : Sculpter (Elévation)"
-            + "       Clic Droit : Sculpter (Dépression)"
-            + " Touche Espace : Prévisualiser la zone du pattern"
+            );
 
-        );
+        GUILayout.Label(
+            "Clic Droit : Sculpter (Dépression)"
+            );
+
+        GUILayout.Label(
+            "Touche Espace : Prévisualiser la zone du pattern"
+            );
 
         GUILayout.Label(
             "Molette + SHIFT : Varier l'intensité"
-        );
+            );
 
         GUILayout.Label(
             "Molette + CTRL : Varier le rayon"
-        );
+            );
+
         GUILayout.Label(
             "Molette + ALT : Changer de pattern"
-        );
+            );
 
         GUILayout.EndArea();
     }
