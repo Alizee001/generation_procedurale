@@ -68,6 +68,17 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public float hauteurTexture = 20f;
 
+    // Création des mesh et vertices pour le LOD
+    private Mesh meshLOD0, meshLOD1, meshLOD2;
+
+    private Vector3[] vertices0, vertices1, vertices2;
+
+    private Vector3[] normales0, normales1, normales2;
+
+    // Matrice de correspondance (Indice LOD1 -> Indice LOD0)
+    private int[] mapLOD1to0;
+
+    private int[] mapLOD2to0;
 
     //[Header("Normales")]
 
@@ -191,10 +202,139 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     void Start()
     {
-        creerLeMeshTerrain();
+        if (puissance2Resolution >= 6)
+        {
+            initialiserLODGroup();
+        }
+        else
+        {
+            creerLeMeshTerrain();
+        }
+
+        
 
         // Terrain initial plat.
-        remettreTerrainPlat();
+        //remettreTerrainPlat();
+    }
+
+    // --------------------------------------------------------------------
+    // INITIALISATION DU GROUPE LOD
+    // --------------------------------------------------------------------
+    void initialiserLODGroup()
+    {
+        // Calcul des résolutions
+        int resLOD0 = 1 <<puissance2Resolution;
+        int resLOD2 = 16;
+        int puissanceLOD1 = (puissance2Resolution - 4) / 2;
+        int resLOD1 = 1 << puissanceLOD1;
+
+        // Création de la hiérarchie LODGroup
+        LODGroup lodGroup = gameObject.AddComponent<LODGroup>();
+        LOD[] lods = new LOD[3];
+
+        // Création des 3 enfants MeshRenderer
+        Renderer[] renderer0 = new Renderer[] { creerEnfantsLOD("LOD_0", resLOD0, out meshLOD0, out vertices0, out normales0) };
+        Renderer[] renderer1 = new Renderer[] { creerEnfantsLOD("LOD_1", resLOD1, out meshLOD1, out vertices1, out normales1) };
+        Renderer[] renderer2 = new Renderer[] { creerEnfantsLOD("LOD_2", resLOD2, out meshLOD2, out vertices2, out normales2) };
+
+        // Références vers LOD0 pour le picking et le calcul
+        p_mesh = meshLOD0;
+        p_vertices = vertices0;
+        p_normals = normales0;
+
+        // Ajustement des seuils de basculementde de distance
+        lods[0] = new LOD(0.5f, renderer0);
+        lods[1] = new LOD(0.15f, renderer1);
+        lods[2] = new LOD(0.02f, renderer2);
+
+        lodGroup.SetLODs(lods);
+        lodGroup.RecalculateBounds();
+
+        calculerMapping(resLOD0, resLOD1, out mapLOD1to0);
+        calculerMapping(resLOD0, resLOD2, out mapLOD2to0);
+
+    }
+
+    // --------------------------------------------------------------------
+    // CREATION DES ENFANTS DES LOD
+    // --------------------------------------------------------------------
+    Renderer creerEnfantsLOD(string nom, int res, out Mesh mesh, out Vector3[] vertices, out Vector3[] norms)
+    {
+        GameObject child = new GameObject(nom);
+        child.transform.SetParent(this.transform, false);
+
+        MeshFilter mf = child.AddComponent<MeshFilter>();
+        MeshRenderer mr = child.AddComponent<MeshRenderer>();
+        //mr.sharedMaterial = GetComponent<MeshRenderer>().sharedMaterial;
+
+        MeshRenderer mainRenderer = GetComponent<MeshRenderer>();
+        if(mainRenderer != null)
+            mr.sharedMaterial = mainRenderer.sharedMaterial;
+
+        // Générer inline du maillage selon la résolution passé en paramètre
+        mesh = creerMeshGrille(res, out vertices, out norms, out Vector2[] uvs, out int[] triangles);
+        mf.sharedMesh = mesh;
+
+        // Si c't le LOD0, affecter son maillage au MeshCollider principal
+        if (nom == "LOD_0" && p_meshCollider != null)
+            p_meshCollider.sharedMesh = mesh;
+
+        return mr;
+    }
+
+    // --------------------------------------------------------------------
+    // CALCUL DU MAPPING
+    // --------------------------------------------------------------------
+    void calculerMapping(int resHaut, int resBasse, out int[] map)
+    {
+        map = new int[resHaut * resBasse];
+        int pas = (resHaut - 1) / (resBasse - 1);
+
+        int idx = 0;
+        for (int z = 0; z < resBasse; z++)
+        {
+            for (int x = 0; x < resBasse; x++)
+            {
+                int xHaut = pas * x;
+                int zHaut = pas * z;
+                map[idx++] = xHaut * resHaut * zHaut;
+
+            }
+        }
+        
+    }
+
+    // --------------------------------------------------------------------
+    // SYNCHRONISATION DES MODIFS DE HAUTEUR ET DE NORMAL
+    // --------------------------------------------------------------------
+    private void propagerLOD()
+    {
+        if (puissance2Resolution < 6)
+            return;
+
+        // Mise à jour du LOD1
+        if(meshLOD1 != null && mapLOD1to0 != null)
+        {
+            for (int i = 0; i < vertices1.Length; i++)
+            {
+                int i0 = mapLOD1to0[i];
+                vertices1[i].y = vertices0[i0].y;
+            }
+            meshLOD1.vertices = vertices1;
+            meshLOD1.RecalculateNormals();
+        }
+
+        // Mise à jour du LOD2
+        if(meshLOD2 != null && mapLOD2to0 != null)
+        {
+            for (int i = 0; i < vertices1.Length; i++)
+            {
+                int i0 = mapLOD2to0[i];
+                vertices2[i].y = vertices0[i0].y;
+            }
+            meshLOD2.vertices = vertices2;
+            meshLOD2.RecalculateNormals();
+        }
     }
 
 
@@ -401,6 +541,65 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_dimTriangles +
             " triangles."
         );
+    }
+
+    private Mesh creerMeshGrille(int res, out Vector3[] vertices, out Vector3[] norms, out Vector2[] uvs, out int[] tris)
+    {
+        vertices = new Vector3[res * res];
+        norms = new Vector3[res * res];
+        uvs = new Vector2[res * res];
+        tris = new int[(res - 1) * (res - 1) * 6];
+
+        float step = dimension / (res - 1);
+        float orig;
+        if (CentrerPivot)
+            orig = dimension * 0.5f;
+        else
+            orig = 0f;
+
+        for (int z = 0; z < res; z++)
+        {
+            for (int x = 0; x < res; x++)
+            {
+                int idx = z * res + x;
+                vertices[idx] = new Vector3(x * step - orig, 0f, z * step - orig);
+                uvs[idx] = new Vector2((float)x / (res - 1), (float)z / (res - 1));
+                norms[idx] = Vector3.up;
+
+            }
+        }
+
+        int tIdx = 0;
+        for (int z = 0; z < res; z++)
+        {
+            for (int x = 0; x < res; x++)
+            {
+                int v0 = z * res + x;
+                int v1 = v0 + 1;
+                int v2 = v0 + res;
+                int v3 = v2 + 1;
+
+                tris[tIdx++] = v0;
+                tris[tIdx++] = v2;
+                tris[tIdx++] = v1;
+
+                tris[tIdx++] = v1;
+                tris[tIdx++] = v2;
+                tris[tIdx++] = v3;
+            }
+        }
+        Mesh mesh = new Mesh();
+        mesh.name = "Mesh_Res" + res;
+        if (vertices.Length > 65535)
+            mesh.indexFormat = IndexFormat.UInt32;
+
+        mesh.vertices = vertices;
+        mesh.uv = uvs;
+        mesh.triangles = tris;
+        mesh.normals = norms;
+        mesh.RecalculateBounds();
+
+        return mesh;
     }
 
 
