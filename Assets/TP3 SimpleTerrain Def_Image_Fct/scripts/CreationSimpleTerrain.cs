@@ -404,49 +404,49 @@ public class CreationSimpleTerrain : MonoBehaviour
         // Création des tableaux
         // ------------------------------------------------------------
 
-        p_vertices = new Vector3[nombreVertices];
-        p_normals = new Vector3[nombreVertices];
-        p_uv = new Vector2[nombreVertices];
+        //p_vertices = new Vector3[nombreVertices];
+        //p_normals = new Vector3[nombreVertices];
+        //p_uv = new Vector2[nombreVertices];
 
-        p_triangles = new int[nombreTriangles * 3];
+        //p_triangles = new int[nombreTriangles * 3];
 
 
         // ------------------------------------------------------------
         // Création des vertices
         // ------------------------------------------------------------
 
-        float origine = CentrerPivot
-            ? dimension * 0.5f
-            : 0f;
+        //float origine = CentrerPivot
+        //    ? dimension * 0.5f
+        //    : 0f;
 
 
-        for (int z = 0; z < resolutionInt; z++)
-        {
-            for (int x = 0; x < resolutionInt; x++)
-            {
-                int index = z * resolutionInt + x;
+        //for (int z = 0; z < resolutionInt; z++)
+        //{
+        //    for (int x = 0; x < resolutionInt; x++)
+        //    {
+        //        int index = z * resolutionInt + x;
 
-                float px = x * p_dimInterVertices - origine;
-                float pz = z * p_dimInterVertices - origine;
+        //        float px = x * p_dimInterVertices - origine;
+        //        float pz = z * p_dimInterVertices - origine;
 
-                p_vertices[index] =
-                    new Vector3(px, 0f, pz);
+        //        p_vertices[index] =
+        //            new Vector3(px, 0f, pz);
 
 
-                // UV entre 0 et 1.
-                float u =
-                    (float)x / (resolutionInt - 1);
+        //        // UV entre 0 et 1.
+        //        float u =
+        //            (float)x / (resolutionInt - 1);
 
-                float v =
-                    (float)z / (resolutionInt - 1);
+        //        float v =
+        //            (float)z / (resolutionInt - 1);
 
-                p_uv[index] =
-                    new Vector2(u, v);
+        //        p_uv[index] =
+        //            new Vector2(u, v);
 
-                p_normals[index] =
-                    Vector3.up;
-            }
-        }
+        //        p_normals[index] =
+        //            Vector3.up;
+        //    }
+        //}
 
 
         // ------------------------------------------------------------
@@ -458,44 +458,44 @@ public class CreationSimpleTerrain : MonoBehaviour
         //
         // ------------------------------------------------------------
 
-        int triangleIndex = 0;
+        //int triangleIndex = 0;
 
-        for (int z = 0; z < resolutionInt - 1; z++)
-        {
-            for (int x = 0; x < resolutionInt - 1; x++)
-            {
-                int v0 = z * resolutionInt + x;
-                int v1 = v0 + 1;
-                int v2 = v0 + resolutionInt;
-                int v3 = v2 + 1;
-
-
-                // Triangle 1
-                p_triangles[triangleIndex++] = v0;
-                p_triangles[triangleIndex++] = v2;
-                p_triangles[triangleIndex++] = v1;
+        //for (int z = 0; z < resolutionInt - 1; z++)
+        //{
+        //    for (int x = 0; x < resolutionInt - 1; x++)
+        //    {
+        //        int v0 = z * resolutionInt + x;
+        //        int v1 = v0 + 1;
+        //        int v2 = v0 + resolutionInt;
+        //        int v3 = v2 + 1;
 
 
-                // Triangle 2
-                p_triangles[triangleIndex++] = v1;
-                p_triangles[triangleIndex++] = v2;
-                p_triangles[triangleIndex++] = v3;
-            }
-        }
+        //        // Triangle 1
+        //        p_triangles[triangleIndex++] = v0;
+        //        p_triangles[triangleIndex++] = v2;
+        //        p_triangles[triangleIndex++] = v1;
+
+
+        //        // Triangle 2
+        //        p_triangles[triangleIndex++] = v1;
+        //        p_triangles[triangleIndex++] = v2;
+        //        p_triangles[triangleIndex++] = v3;
+        //    }
+        //}
 
 
         // ------------------------------------------------------------
         // Création du Mesh
         // ------------------------------------------------------------
 
-        if (p_mesh != null)
-        {
-            Destroy(p_mesh);
-        }
+        //if (p_mesh != null)
+        //{
+        //    Destroy(p_mesh);
+        //}
 
-        p_mesh = new Mesh();
+        //p_mesh = new Mesh();
 
-        p_mesh.name = "TerrainProcedural";
+        //p_mesh.name = "TerrainProcedural";
 
 
         // ------------------------------------------------------------
@@ -503,23 +503,24 @@ public class CreationSimpleTerrain : MonoBehaviour
         // Plus de 65535 vertices => indices 32 bits.
         // ------------------------------------------------------------
 
-        if (nombreVertices > 65535)
-        {
-            p_mesh.indexFormat = IndexFormat.UInt32;
-        }
-        else
-        {
-            p_mesh.indexFormat = IndexFormat.UInt16;
-        }
+        //if (nombreVertices > 65535)
+        //{
+        //    p_mesh.indexFormat = IndexFormat.UInt32;
+        //}
+        //else
+        //{
+        //    p_mesh.indexFormat = IndexFormat.UInt16;
+        //}
 
 
-        p_mesh.vertices = p_vertices;
-        p_mesh.uv = p_uv;
-        p_mesh.triangles = p_triangles;
-        p_mesh.normals = p_normals;
+        //p_mesh.vertices = p_vertices;
+        //p_mesh.uv = p_uv;
+        //p_mesh.triangles = p_triangles;
+        //p_mesh.normals = p_normals;
 
-        p_mesh.RecalculateBounds();
+        //p_mesh.RecalculateBounds();
 
+        p_mesh = creerMeshGrille(resolutionInt, out p_vertices, out p_normals, out p_uv, out p_triangles);
 
         p_meshFilter.sharedMesh = p_mesh;
 
@@ -570,9 +571,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         int tIdx = 0;
-        for (int z = 0; z < res; z++)
+        for (int z = 0; z < res - 1; z++)
         {
-            for (int x = 0; x < res; x++)
+            for (int x = 0; x < res - 1; x++)
             {
                 int v0 = z * res + x;
                 int v1 = v0 + 1;
@@ -612,6 +613,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         p_trianglesParVertex =
             new List<int>[p_vertices.Length];
 
+        if (p_triangles == null || p_vertices == null)
+            return;
 
         for (int i = 0; i < p_trianglesParVertex.Length; i++)
         {
@@ -676,6 +679,9 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         p_meshCollider.sharedMesh = null;
         p_meshCollider.sharedMesh = p_mesh;
+
+        // Propagation des modification aux sous maillages LOD1 et LOD2
+        propagerLOD();
     }
 
 
@@ -1779,7 +1785,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 20,
                 20,
                 460,
-                500
+                1100
             ),
             ""
         );
@@ -1790,7 +1796,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 40,
                 35,
                 420,
-                470
+                1090
             )
         );
 
@@ -1910,6 +1916,29 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Label(
             "R : faire tourner le terrain"
         );
+
+        GUILayout.Space(10);
+        GUILayout.Label("PARAMETRES LOD :");
+
+        // Affichage si le LOD est actif ou pas
+        LODGroup lodGroup = GetComponent<LODGroup>();
+        if ( lodGroup != null )
+        {
+            LOD[] lods = lodGroup.GetLODs();
+            string status = "LOD Inactif / Hors champs";
+
+            for (int i = 0; i < lods.Length; i++)
+            {
+                if (lods[i].renderers.Length > 0 && lods[i].renderers[0] != null)
+                {
+                    status = $"LOD Actif : LOD_{i}";
+                    break;
+                }
+            }
+
+            GUILayout.Space(10);
+            GUILayout.Label(status);
+        }
 
 
         GUILayout.EndArea();
