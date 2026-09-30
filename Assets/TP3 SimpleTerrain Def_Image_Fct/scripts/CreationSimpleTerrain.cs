@@ -12,13 +12,13 @@ using UnityEditor;
 [RequireComponent(typeof(MeshCollider))]
 public class CreationSimpleTerrain : MonoBehaviour
 {
-    [Header("Paramètres du terrain")]
+    [Header("ParamÃ¨tres du terrain")]
 
     [Range(1, 2000)]
     public float dimension = 100;
 
     [Range(1, 12)]
-    [Tooltip("La résolution vaut 2^n")]
+    [Tooltip("La rÃ©solution vaut 2^n")]
     public int puissance2Resolution = 4;
 
     public bool CentrerPivot = true;
@@ -33,7 +33,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         Texture
     }
 
-    [Header("Mode de génération")]
+    [Header("Mode de gÃ©nÃ©ration")]
     public ChoixModeDeformation choixModeDeformation;
 
 
@@ -54,7 +54,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     public List<Texture2D> textures;
 
 
-    [Header("Paramètres des fonctions")]
+    [Header("ParamÃ¨tres des fonctions")]
 
     public float hauteurSinusoide = 5f;
 
@@ -68,7 +68,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public float hauteurTexture = 20f;
 
-    // Création des mesh et vertices pour le LOD
+    // CrÃ©ation des mesh et vertices pour le LOD
     private Mesh meshLOD0, meshLOD1, meshLOD2;
 
     private Vector3[] vertices0, vertices1, vertices2;
@@ -92,7 +92,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     public ModeNormale modeNormale = ModeNormale.Basique;
 
 
-    [Header("Caméra")]
+    [Header("CamÃ©ra")]
 
     public float vitesseCamera = 15f;
 
@@ -100,9 +100,9 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public float vitesseRotationTerrain = 50f;
 
-    // --- NOUVEAUX PARAMÈTRES POUR L'EXERCICE 1 ---
+    // --- NOUVEAUX PARAMÃˆTRES POUR L'EXERCICE 1 ---
     [Header("Sculpture Interactive (Exercice 1)")]
-    [Tooltip("Ajoutez des courbes allant de X=0 à X=1, et Y=0 à Y=1")]
+    [Tooltip("Ajoutez des courbes allant de X=0 Ã  X=1, et Y=0 Ã  Y=1")]
     public AnimationCurve[] patternsDeformation;
     public float rayonDeformation = 15f;
     public float intensiteMaxDeformation = 10f;
@@ -111,7 +111,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
     // --------------------------------------------------------------------
-    // Données internes
+    // DonnÃ©es internes
     // --------------------------------------------------------------------
 
     private uint p_dimVertices;
@@ -132,7 +132,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private float p_dimInterVertices;
 
-    // Liste des triangles attachés à chaque vertex.
+    // Liste des triangles attachÃ©s Ã  chaque vertex.
     private List<int>[] p_trianglesParVertex;
 
     // Pour le picking des collines.
@@ -231,22 +231,22 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     void initialiserLODGroup()
     {
-        // Calcul des résolutions
+        // Calcul des rÃ©solutions
         int resLOD0 = 1 <<puissance2Resolution;
         int resLOD2 = 16;
         int puissanceLOD1 = (puissance2Resolution - 4) / 2;
         int resLOD1 = 1 << puissanceLOD1;
 
-        // Création de la hiérarchie LODGroup
+        // CrÃ©ation de la hiÃ©rarchie LODGroup
         LODGroup lodGroup = gameObject.AddComponent<LODGroup>();
         LOD[] lods = new LOD[3];
 
-        // Création des 3 enfants MeshRenderer
+        // CrÃ©ation des 3 enfants MeshRenderer
         Renderer[] renderer0 = new Renderer[] { creerEnfantsLOD("LOD_0", resLOD0, out meshLOD0, out vertices0, out normales0) };
         Renderer[] renderer1 = new Renderer[] { creerEnfantsLOD("LOD_1", resLOD1, out meshLOD1, out vertices1, out normales1) };
         Renderer[] renderer2 = new Renderer[] { creerEnfantsLOD("LOD_2", resLOD2, out meshLOD2, out vertices2, out normales2) };
 
-        // Références vers LOD0 pour le picking et le calcul
+        // RÃ©fÃ©rences vers LOD0 pour le picking et le calcul
         p_mesh = meshLOD0;
         p_vertices = vertices0;
         p_normals = normales0;
@@ -280,7 +280,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         if(mainRenderer != null)
             mr.sharedMaterial = mainRenderer.sharedMaterial;
 
-        // Générer inline du maillage selon la résolution passé en paramètre
+        // GÃ©nÃ©rer inline du maillage selon la rÃ©solution passÃ© en paramÃ¨tre
         mesh = creerMeshGrille(res, out vertices, out norms, out Vector2[] uvs, out int[] triangles);
         mf.sharedMesh = mesh;
 
@@ -321,7 +321,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (puissance2Resolution < 6)
             return;
 
-        // Mise à jour du LOD1
+        // Mise Ã  jour du LOD1
         if(meshLOD1 != null && mapLOD1to0 != null)
         {
             for (int i = 0; i < vertices1.Length; i++)
@@ -333,7 +333,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             meshLOD1.RecalculateNormals();
         }
 
-        // Mise à jour du LOD2
+        // Mise Ã  jour du LOD2
         if(meshLOD2 != null && mapLOD2to0 != null)
         {
             for (int i = 0; i < vertices1.Length; i++)
@@ -364,7 +364,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         // ------------------------------------------------------------
-        // Résolution
+        // RÃ©solution
         // ------------------------------------------------------------
 
         int resolutionInt = 1 << puissance2Resolution;
@@ -410,56 +410,56 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         // ------------------------------------------------------------
-        // Création des tableaux
+        // CrÃ©ation des tableaux
         // ------------------------------------------------------------
 
-        p_vertices = new Vector3[nombreVertices];
-        p_normals = new Vector3[nombreVertices];
-        p_uv = new Vector2[nombreVertices];
+        //p_vertices = new Vector3[nombreVertices];
+        //p_normals = new Vector3[nombreVertices];
+        //p_uv = new Vector2[nombreVertices];
 
-        p_triangles = new int[nombreTriangles * 3];
-
-
-        // ------------------------------------------------------------
-        // Création des vertices
-        // ------------------------------------------------------------
-
-        float origine = CentrerPivot
-            ? dimension * 0.5f
-            : 0f;
-
-
-        for (int z = 0; z < resolutionInt; z++)
-        {
-            for (int x = 0; x < resolutionInt; x++)
-            {
-                int index = z * resolutionInt + x;
-
-                float px = x * p_dimInterVertices - origine;
-                float pz = z * p_dimInterVertices - origine;
-
-                p_vertices[index] =
-                    new Vector3(px, 0f, pz);
-
-
-                // UV entre 0 et 1.
-                float u =
-                    (float)x / (resolutionInt - 1);
-
-                float v =
-                    (float)z / (resolutionInt - 1);
-
-                p_uv[index] =
-                    new Vector2(u, v);
-
-                p_normals[index] =
-                    Vector3.up;
-            }
-        }
+        //p_triangles = new int[nombreTriangles * 3];
 
 
         // ------------------------------------------------------------
-        // Création des triangles
+        // CrÃ©ation des vertices
+        // ------------------------------------------------------------
+
+        //float origine = CentrerPivot
+        //    ? dimension * 0.5f
+        //    : 0f;
+
+
+        //for (int z = 0; z < resolutionInt; z++)
+        //{
+        //    for (int x = 0; x < resolutionInt; x++)
+        //    {
+        //        int index = z * resolutionInt + x;
+
+        //        float px = x * p_dimInterVertices - origine;
+        //        float pz = z * p_dimInterVertices - origine;
+
+        //        p_vertices[index] =
+        //            new Vector3(px, 0f, pz);
+
+
+        //        // UV entre 0 et 1.
+        //        float u =
+        //            (float)x / (resolutionInt - 1);
+
+        //        float v =
+        //            (float)z / (resolutionInt - 1);
+
+        //        p_uv[index] =
+        //            new Vector2(u, v);
+
+        //        p_normals[index] =
+        //            Vector3.up;
+        //    }
+        //}
+
+
+        // ------------------------------------------------------------
+        // CrÃ©ation des triangles
         //
         // 3 -- 2
         // |  / |
@@ -467,44 +467,44 @@ public class CreationSimpleTerrain : MonoBehaviour
         //
         // ------------------------------------------------------------
 
-        int triangleIndex = 0;
+        //int triangleIndex = 0;
 
-        for (int z = 0; z < resolutionInt - 1; z++)
-        {
-            for (int x = 0; x < resolutionInt - 1; x++)
-            {
-                int v0 = z * resolutionInt + x;
-                int v1 = v0 + 1;
-                int v2 = v0 + resolutionInt;
-                int v3 = v2 + 1;
-
-
-                // Triangle 1
-                p_triangles[triangleIndex++] = v0;
-                p_triangles[triangleIndex++] = v2;
-                p_triangles[triangleIndex++] = v1;
+        //for (int z = 0; z < resolutionInt - 1; z++)
+        //{
+        //    for (int x = 0; x < resolutionInt - 1; x++)
+        //    {
+        //        int v0 = z * resolutionInt + x;
+        //        int v1 = v0 + 1;
+        //        int v2 = v0 + resolutionInt;
+        //        int v3 = v2 + 1;
 
 
-                // Triangle 2
-                p_triangles[triangleIndex++] = v1;
-                p_triangles[triangleIndex++] = v2;
-                p_triangles[triangleIndex++] = v3;
-            }
-        }
+        //        // Triangle 1
+        //        p_triangles[triangleIndex++] = v0;
+        //        p_triangles[triangleIndex++] = v2;
+        //        p_triangles[triangleIndex++] = v1;
+
+
+        //        // Triangle 2
+        //        p_triangles[triangleIndex++] = v1;
+        //        p_triangles[triangleIndex++] = v2;
+        //        p_triangles[triangleIndex++] = v3;
+        //    }
+        //}
 
 
         // ------------------------------------------------------------
-        // Création du Mesh
+        // CrÃ©ation du Mesh
         // ------------------------------------------------------------
 
-        if (p_mesh != null)
-        {
-            Destroy(p_mesh);
-        }
+        //if (p_mesh != null)
+        //{
+        //    Destroy(p_mesh);
+        //}
 
-        p_mesh = new Mesh();
+        //p_mesh = new Mesh();
 
-        p_mesh.name = "TerrainProcedural";
+        //p_mesh.name = "TerrainProcedural";
 
 
         // ------------------------------------------------------------
@@ -512,23 +512,24 @@ public class CreationSimpleTerrain : MonoBehaviour
         // Plus de 65535 vertices => indices 32 bits.
         // ------------------------------------------------------------
 
-        if (nombreVertices > 65535)
-        {
-            p_mesh.indexFormat = IndexFormat.UInt32;
-        }
-        else
-        {
-            p_mesh.indexFormat = IndexFormat.UInt16;
-        }
+        //if (nombreVertices > 65535)
+        //{
+        //    p_mesh.indexFormat = IndexFormat.UInt32;
+        //}
+        //else
+        //{
+        //    p_mesh.indexFormat = IndexFormat.UInt16;
+        //}
 
 
-        p_mesh.vertices = p_vertices;
-        p_mesh.uv = p_uv;
-        p_mesh.triangles = p_triangles;
-        p_mesh.normals = p_normals;
+        //p_mesh.vertices = p_vertices;
+        //p_mesh.uv = p_uv;
+        //p_mesh.triangles = p_triangles;
+        //p_mesh.normals = p_normals;
 
-        p_mesh.RecalculateBounds();
+        //p_mesh.RecalculateBounds();
 
+        p_mesh = creerMeshGrille(resolutionInt, out p_vertices, out p_normals, out p_uv, out p_triangles);
 
         p_meshFilter.sharedMesh = p_mesh;
 
@@ -544,7 +545,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         Debug.Log(
-            "Terrain créé : " +
+            "Terrain crÃ©Ã© : " +
             p_dimVertices +
             " vertices, " +
             p_dimTriangles +
@@ -579,9 +580,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         int tIdx = 0;
-        for (int z = 0; z < res; z++)
+        for (int z = 0; z < res - 1; z++)
         {
-            for (int x = 0; x < res; x++)
+            for (int x = 0; x < res - 1; x++)
             {
                 int v0 = z * res + x;
                 int v1 = v0 + 1;
@@ -621,6 +622,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         p_trianglesParVertex =
             new List<int>[p_vertices.Length];
 
+        if (p_triangles == null || p_vertices == null)
+            return;
 
         for (int i = 0; i < p_trianglesParVertex.Length; i++)
         {
@@ -629,7 +632,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
 
-        // Chaque triangle est associé à ses 3 vertices.
+        // Chaque triangle est associÃ© Ã  ses 3 vertices.
         for (int i = 0; i < p_triangles.Length; i += 3)
         {
             int a = p_triangles[i];
@@ -685,6 +688,9 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         p_meshCollider.sharedMesh = null;
         p_meshCollider.sharedMesh = p_mesh;
+
+        // Propagation des modification aux sous maillages LOD1 et LOD2
+        propagerLOD();
     }
 
 
@@ -698,7 +704,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             return;
 
 
-        // Nouvelle génération.
+        // Nouvelle gÃ©nÃ©ration.
         remettreTerrainPlat();
 
 
@@ -713,7 +719,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
             case TypeFonction.Collines:
 
-                // Si aucun picking n'a été effectué,
+                // Si aucun picking n'a Ã©tÃ© effectuÃ©,
                 // on place une colline au centre.
                 Vector3 centre;
 
@@ -809,7 +815,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
             // Fonction gaussienne :
             //
-            // exp(-(x²+z²)/(2*sigma²))
+            // exp(-(xÂ²+zÂ²)/(2*sigmaÂ²))
             //
             float facteur =
                 Mathf.Exp(
@@ -878,7 +884,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             textures.Count == 0)
         {
             Debug.LogWarning(
-                "Aucune HeightMap n'est renseignée."
+                "Aucune HeightMap n'est renseignÃ©e."
             );
 
             return;
@@ -900,7 +906,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (texture == null)
         {
             Debug.LogWarning(
-                "La HeightMap sélectionnée est vide."
+                "La HeightMap sÃ©lectionnÃ©e est vide."
             );
 
             return;
@@ -929,8 +935,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             {
                 Debug.LogError(
                     "Impossible de lire la HeightMap. " +
-                    "Vérifie que Read/Write est activé " +
-                    "dans les propriétés de la texture."
+                    "VÃ©rifie que Read/Write est activÃ© " +
+                    "dans les propriÃ©tÃ©s de la texture."
                 );
 
                 return;
@@ -1136,7 +1142,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         // ------------------------------------------------------------
-        // B - Moyenne pondérée par la surface
+        // B - Moyenne pondÃ©rÃ©e par la surface
         // ------------------------------------------------------------
 
         else if (modeNormale == ModeNormale.Surface)
@@ -1160,7 +1166,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         // ------------------------------------------------------------
-        // C - Moyenne pondérée par l'angle
+        // C - Moyenne pondÃ©rÃ©e par l'angle
         // ------------------------------------------------------------
 
         else if (modeNormale == ModeNormale.Angle)
@@ -1357,7 +1363,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         // ------------------------------------------------------------
-        // F12 : méthode de calcul des normales
+        // F12 : mÃ©thode de calcul des normales
         // ------------------------------------------------------------
 
         if (Keyboard.current.f12Key.wasPressedThisFrame)
@@ -1440,7 +1446,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         p_pointPickingDisponible = true;
 
 
-        // Une colline est ajoutée
+        // Une colline est ajoutÃ©e
         // uniquement lorsque le mode fonction
         // est sur Collines.
         if (choixModeDeformation ==
@@ -1475,7 +1481,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         float delta = vitesseCamera * Time.deltaTime;
         Vector3 direction = Vector3.zero;
 
-        // --- DÉPLACEMENT ZQSD PHYSIQUE (Touches QWERTY WASD) ---
+        // --- DÃ‰PLACEMENT ZQSD PHYSIQUE (Touches QWERTY WASD) ---
         if (Keyboard.current.wKey.isPressed) // AZERTY Z (Avancer)
             direction += p_cam.transform.forward;
 
@@ -1522,7 +1528,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_cam.transform.Rotate(Vector3.right, rotation, Space.Self);
         }
 
-        // R tourne le terrain. (Le R est à la même place en AZERTY et QWERTY)
+        // R tourne le terrain. (Le R est Ã  la mÃªme place en AZERTY et QWERTY)
         if (Keyboard.current.rKey.isPressed)
         {
             transform.Rotate(
@@ -1551,8 +1557,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             return;
 
 
-        // Pour éviter de dessiner plusieurs milliers
-        // de lignes à chaque frame.
+        // Pour Ã©viter de dessiner plusieurs milliers
+        // de lignes Ã  chaque frame.
         int pas =
             Mathf.Max(
                 1,
@@ -1588,7 +1594,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
             // --------------------------------------------------------
-            // Mode 1 : normale d'éclairage
+            // Mode 1 : normale d'Ã©clairage
             // moyenne des normales des 3 vertices
             // --------------------------------------------------------
 
@@ -1612,7 +1618,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
             // --------------------------------------------------------
             // Mode 3 :
-            // orientation + éclairage
+            // orientation + Ã©clairage
             // --------------------------------------------------------
 
             else
@@ -1794,7 +1800,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 );
 
             GUILayout.Label(
-                $"Mémoire approximative : {calculerMemoireMesh()} Ko"
+                $"MÃ©moire approximative : {calculerMemoireMesh()} Ko"
                 );
         }
 
@@ -1853,7 +1859,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            "ZQSD : Déplacer la caméra"
+            "ZQSD : DÃ©placer la camÃ©ra"
             );
 
         GUILayout.Label(
@@ -1861,7 +1867,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            "O/K/L/M : Tourner la caméra"
+            "O/K/L/M : Tourner la camÃ©ra"
             );
 
         GUILayout.Label(
@@ -1879,7 +1885,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            $"Intensité Max : {intensiteMaxDeformation}"
+            $"IntensitÃ© Max : {intensiteMaxDeformation}"
             );
 
         GUILayout.Label(
@@ -1893,19 +1899,19 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            "Clic Gauche : Sculpter (Elévation)"
+            "Clic Gauche : Sculpter (ElÃ©vation)"
             );
 
         GUILayout.Label(
-            "Clic Droit : Sculpter (Dépression)"
+            "Clic Droit : Sculpter (DÃ©pression)"
             );
 
         GUILayout.Label(
-            "Touche Espace : Prévisualiser la zone du pattern (Debug)"
+            "Touche Espace : PrÃ©visualiser la zone du pattern (Debug)"
             );
 
         GUILayout.Label(
-            "Molette + SHIFT : Varier l'intensité"
+            "Molette + SHIFT : Varier l'intensitÃ©"
             );
 
         GUILayout.Label(
@@ -1915,6 +1921,31 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Label(
             "Molette + ALT : Changer de pattern"
             );
+
+
+        GUILayout.Space(10);
+        GUILayout.Label("PARAMETRES LOD :");
+
+        // Affichage si le LOD est actif ou pas
+        LODGroup lodGroup = GetComponent<LODGroup>();
+        if ( lodGroup != null )
+        {
+            LOD[] lods = lodGroup.GetLODs();
+            string status = "LOD Inactif / Hors champs";
+
+            for (int i = 0; i < lods.Length; i++)
+            {
+                if (lods[i].renderers.Length > 0 && lods[i].renderers[0] != null)
+                {
+                    status = $"LOD Actif : LOD_{i}";
+                    break;
+                }
+            }
+
+            GUILayout.Space(10);
+            GUILayout.Label(status);
+        }
+
 
         GUILayout.EndArea();
     }
@@ -2196,7 +2227,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
     // ------------------------------------------------------------
-    // Direction de la déformation
+    // Direction de la dÃ©formation
     // ------------------------------------------------------------
 
     float direction =
@@ -2243,7 +2274,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         // --------------------------------------------------------
-        // Distance normalisée [0 ; 1]
+        // Distance normalisÃ©e [0 ; 1]
         // --------------------------------------------------------
 
         float distance =
@@ -2277,7 +2308,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
     // ------------------------------------------------------------
-    // Mise à jour du terrain
+    // Mise Ã  jour du terrain
     // ------------------------------------------------------------
 
     if (maillageModifie)
