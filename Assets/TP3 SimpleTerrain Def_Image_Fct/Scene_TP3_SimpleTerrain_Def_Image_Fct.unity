@@ -229,11 +229,13 @@ MonoBehaviour:
   resolution: 1
   choixModeDeformation: 1
   typeFonction: 0
+  distanceUtilisee: 0
   numTexture: 0
   textures:
-  - {fileID: 2800000, guid: d5e39fb9fb8119a4290b5813321edbf0, type: 3}
-  - {fileID: 2800000, guid: 5e6512beed44af24ba1a1c02cebcbd1c, type: 3}
-  - {fileID: 2800000, guid: e11ae8d410952444a9ee3192200b4e3b, type: 3}
+  - {fileID: 2800000, guid: d579edd2e80760045bad026e27ce931e, type: 3}
+  - {fileID: 2800000, guid: 853e5c9760eba544fbf7d136ad5270f9, type: 3}
+  - {fileID: 2800000, guid: e40801dd153fc1b449a02a35632f1c6f, type: 3}
+  - {fileID: 2800000, guid: 34b1b5fe0386b224fbed334748e9a1a3, type: 3}
   hauteurSinusoide: 5
   hauteurColline: 10
   largeurColline: 15
@@ -314,7 +316,30 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 0
-  rayonDeformation: 15
+  - serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 0
+  rayonDeformation: 3
   intensiteMaxDeformation: 10
 --- !u!64 &205109097
 MeshCollider:

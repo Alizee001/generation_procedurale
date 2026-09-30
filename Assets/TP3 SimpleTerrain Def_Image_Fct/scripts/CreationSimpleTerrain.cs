@@ -46,6 +46,20 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public TypeFonction typeFonction;
 
+    // --------------------------------------------------------------------
+    // EXERCICE 2 : METRIQUES DE DISTANCE
+    // --------------------------------------------------------------------
+    public enum TypeDistance
+    {
+        Euclidienne,
+        EuclidienneCarree,
+        Manhattan,
+        Chebyshev
+    }
+
+    [Header("Exercice 2 - Parametre de distance")]
+    public TypeDistance distanceUtilisee = TypeDistance.Euclidienne;
+
 
     [Header("HeightMaps")]
 
@@ -158,6 +172,12 @@ public class CreationSimpleTerrain : MonoBehaviour
     // Rotation terrain.
     private bool p_rotationTerrain = false;
 
+    // EXERCICE 2 : affichage des distances
+    private bool p_afficherDistances = false;
+    private Vector3 p_centreDistanceMonde;
+    private float p_distanceMaxAffichee = 0f;
+    private int p_nombreVoisins = 0;
+
 
     // --------------------------------------------------------------------
     // RESET
@@ -220,7 +240,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             creerLeMeshTerrain();
         }
 
-        
+
 
         // Terrain initial plat.
         //remettreTerrainPlat();
@@ -232,7 +252,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     void initialiserLODGroup()
     {
         // Calcul des résolutions
-        int resLOD0 = 1 <<puissance2Resolution;
+        int resLOD0 = 1 << puissance2Resolution;
         int resLOD2 = 16;
         int puissanceLOD1 = (puissance2Resolution - 4) / 2;
         int resLOD1 = 1 << puissanceLOD1;
@@ -277,7 +297,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         //mr.sharedMaterial = GetComponent<MeshRenderer>().sharedMaterial;
 
         MeshRenderer mainRenderer = GetComponent<MeshRenderer>();
-        if(mainRenderer != null)
+        if (mainRenderer != null)
             mr.sharedMaterial = mainRenderer.sharedMaterial;
 
         // Générer inline du maillage selon la résolution passé en paramètre
@@ -306,11 +326,11 @@ public class CreationSimpleTerrain : MonoBehaviour
             {
                 int xHaut = pas * x;
                 int zHaut = pas * z;
-                map[idx++] = xHaut * resHaut * zHaut;
+                map[idx++] = zHaut * resHaut + xHaut;
 
             }
         }
-        
+
     }
 
     // --------------------------------------------------------------------
@@ -322,7 +342,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             return;
 
         // Mise à jour du LOD1
-        if(meshLOD1 != null && mapLOD1to0 != null)
+        if (meshLOD1 != null && mapLOD1to0 != null)
         {
             for (int i = 0; i < vertices1.Length; i++)
             {
@@ -334,7 +354,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         // Mise à jour du LOD2
-        if(meshLOD2 != null && mapLOD2to0 != null)
+        if (meshLOD2 != null && mapLOD2to0 != null)
         {
             for (int i = 0; i < vertices1.Length; i++)
             {
@@ -566,9 +586,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         else
             orig = 0f;
 
-        for (int z = 0; z < res; z++)
+        for (int z = 0; z < res - 1; z++)
         {
-            for (int x = 0; x < res; x++)
+            for (int x = 0; x < res - 1; x++)
             {
                 int idx = z * res + x;
                 vertices[idx] = new Vector3(x * step - orig, 0f, z * step - orig);
@@ -1305,15 +1325,14 @@ public class CreationSimpleTerrain : MonoBehaviour
             choixModeDeformation =
                 ChoixModeDeformation.Fonction;
 
-            appliquerDeformation_Fonction();
-
-
             typeFonction =
                 (TypeFonction)
                 (
                     ((int)typeFonction + 1)
                     % 3
                 );
+
+            appliquerDeformation_Fonction();
         }
 
 
@@ -1326,9 +1345,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             choixModeDeformation =
                 ChoixModeDeformation.Texture;
 
-            appliquerDeformation_Texture();
-
-
             if (textures != null &&
                 textures.Count > 0)
             {
@@ -1336,6 +1352,8 @@ public class CreationSimpleTerrain : MonoBehaviour
                     (numTexture + 1)
                     % textures.Count;
             }
+
+            appliquerDeformation_Texture();
         }
 
 
@@ -1378,6 +1396,21 @@ public class CreationSimpleTerrain : MonoBehaviour
             Debug.Log(
                 "Mode normale : "
                 + modeNormale
+            );
+        }
+
+        // ------------------------------------------------------------
+        // EXERCICE 2 : Z = changer de distance
+        // D reste reserve au deplacement de la camera.
+        // ------------------------------------------------------------
+        if (Keyboard.current.zKey.wasPressedThisFrame)
+        {
+            distanceUtilisee =
+                (TypeDistance)(((int)distanceUtilisee + 1) % 4);
+
+            Debug.Log(
+                "Distance utilisee : " +
+                distanceUtilisee
             );
         }
     }
@@ -1816,6 +1849,10 @@ public class CreationSimpleTerrain : MonoBehaviour
             $"Normales : {modeNormale}"
             );
 
+        GUILayout.Label(
+            $"Distance : {distanceUtilisee}"
+            );
+
         GUILayout.Space(10);
 
         GUILayout.Label(
@@ -1844,6 +1881,10 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         GUILayout.Label(
             "F12 : Changer le calcul des normales"
+            );
+
+        GUILayout.Label(
+            "Z : Changer de distance (Exercice 2)"
             );
 
         GUILayout.Space(5);
@@ -1915,6 +1956,22 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Label(
             "Molette + ALT : Changer de pattern"
             );
+
+        GUILayout.Space(10);
+
+        GUILayout.Label(
+            "EXERCICE 2 - DISTANCES"
+            );
+
+        GUILayout.Label(
+            "W : Euclidienne / Euclidienne² / Manhattan / Chebyshev"
+            );
+
+        GUILayout.Label(
+           "Espace : visualiser le voisinage"
+           );
+
+        GUILayout.Label($"Voisins (Espace) : {p_nombreVoisins}");
 
         GUILayout.EndArea();
     }
@@ -2142,151 +2199,162 @@ public class CreationSimpleTerrain : MonoBehaviour
     }
 
     // --------------------------------------------------------------------
+    // EXERCICE 2 : CALCUL DES DISTANCES
+    // --------------------------------------------------------------------
+
+    private float calculerDistanceNormalisee(Vector3 vertex, Vector3 centre, out bool dansRayon)
+    {
+        float dx = vertex.x - centre.x;
+        float dz = vertex.z - centre.z;
+        float rayon = Mathf.Max(0.01f, rayonDeformation);
+
+        switch (distanceUtilisee)
+        {
+            case TypeDistance.Euclidienne:
+                {
+                    float d = Mathf.Sqrt(dx * dx + dz * dz);
+                    dansRayon = d < rayon;
+                    return d / rayon;
+                }
+            case TypeDistance.EuclidienneCarree:
+                {
+                    float dc = dx * dx + dz * dz;        // pas de racine
+                    float rayonCarre = rayon * rayon;
+                    dansRayon = dc < rayonCarre;
+                    return dc / rayonCarre;
+                }
+            case TypeDistance.Manhattan:
+                {
+                    float d = Mathf.Abs(dx) + Mathf.Abs(dz);
+                    dansRayon = d < rayon;
+                    return d / rayon;
+                }
+            default: // Chebyshev
+                {
+                    float d = Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dz));
+                    dansRayon = d < rayon;
+                    return d / rayon;
+                }
+        }
+    }
+
+    // --------------------------------------------------------------------
     // PATTERN DE DEFORMATION
     // --------------------------------------------------------------------
 
     private void appliquerPatternDeformation(
     Vector3 pointMonde,
     bool elevation)
-{
-    if (p_vertices == null)
-        return;
-
-
-    if (patternsDeformation == null ||
-        patternsDeformation.Length == 0)
-        return;
-
-
-    AnimationCurve courbe =
-        patternsDeformation[p_indexPatternCourant];
-
-
-    if (courbe == null)
     {
-        Debug.LogWarning(
-            "Le pattern "
-            + p_indexPatternCourant
-            + " est vide."
-        );
+        if (p_vertices == null)
+            return;
 
-        return;
+
+        if (patternsDeformation == null ||
+            patternsDeformation.Length == 0)
+            return;
+
+
+        AnimationCurve courbe =
+            patternsDeformation[p_indexPatternCourant];
+
+
+        if (courbe == null)
+        {
+            Debug.LogWarning(
+                "Le pattern "
+                + p_indexPatternCourant
+                + " est vide."
+            );
+
+            return;
+        }
+
+
+        // ------------------------------------------------------------
+        // Point de collision en espace local
+        // ------------------------------------------------------------
+
+        Vector3 centreLocal =
+            transform.InverseTransformPoint(
+                pointMonde
+            );
+
+
+        float rayon =
+            Mathf.Max(
+                0.01f,
+                rayonDeformation
+            );
+
+
+        // ------------------------------------------------------------
+        // Direction de la déformation
+        // ------------------------------------------------------------
+
+        float direction =
+            elevation
+            ? 1f
+            : -1f;
+
+
+        float forceMax =
+            intensiteMaxDeformation
+            * Time.deltaTime
+            * 5f;
+
+
+        bool maillageModifie = false;
+
+
+        // ------------------------------------------------------------
+        // Recherche des vertices dans le voisinage
+        // ------------------------------------------------------------
+
+        for (int i = 0;
+             i < p_vertices.Length;
+             i++)
+        {
+            bool dansRayon;
+            float t = calculerDistanceNormalisee(p_vertices[i], centreLocal, out dansRayon);
+            if (!dansRayon)
+                continue;
+
+            float force = courbe.Evaluate(t);
+
+            if (!dansRayon)
+                continue;
+
+
+            // --------------------------------------------------------
+            // Application du pattern
+            // --------------------------------------------------------
+
+            float deformation =
+                direction
+                * force
+                * forceMax;
+
+
+            p_vertices[i].y +=
+                deformation;
+
+
+            maillageModifie = true;
+        }
+
+
+        // ------------------------------------------------------------
+        // Mise à jour du terrain
+        // ------------------------------------------------------------
+
+        if (maillageModifie)
+        {
+            recalculerToutesLesNormales();
+
+            appliquerMesh();
+        }
     }
-
-
-    // ------------------------------------------------------------
-    // Point de collision en espace local
-    // ------------------------------------------------------------
-
-    Vector3 centreLocal =
-        transform.InverseTransformPoint(
-            pointMonde
-        );
-
-
-    float rayon =
-        Mathf.Max(
-            0.01f,
-            rayonDeformation
-        );
-
-
-    float rayonCarre =
-        rayon * rayon;
-
-
-    // ------------------------------------------------------------
-    // Direction de la déformation
-    // ------------------------------------------------------------
-
-    float direction =
-        elevation
-        ? 1f
-        : -1f;
-
-
-    float forceMax =
-        intensiteMaxDeformation
-        * Time.deltaTime
-        * 5f;
-
-
-    bool maillageModifie = false;
-
-
-    // ------------------------------------------------------------
-    // Recherche des vertices dans le voisinage
-    // ------------------------------------------------------------
-
-    for (int i = 0;
-         i < p_vertices.Length;
-         i++)
-    {
-        float dx =
-            p_vertices[i].x
-            - centreLocal.x;
-
-
-        float dz =
-            p_vertices[i].z
-            - centreLocal.z;
-
-
-        float distanceCarree =
-            dx * dx
-            + dz * dz;
-
-
-        // Vertex en dehors du cercle
-        if (distanceCarree > rayonCarre)
-            continue;
-
-
-        // --------------------------------------------------------
-        // Distance normalisée [0 ; 1]
-        // --------------------------------------------------------
-
-        float distance =
-            Mathf.Sqrt(distanceCarree);
-
-
-        float t =
-            distance / rayon;
-
-
-        // --------------------------------------------------------
-        // Application du pattern
-        // --------------------------------------------------------
-
-        float force =
-            courbe.Evaluate(t);
-
-
-        float deformation =
-            direction
-            * force
-            * forceMax;
-
-
-        p_vertices[i].y +=
-            deformation;
-
-
-        maillageModifie = true;
-    }
-
-
-    // ------------------------------------------------------------
-    // Mise à jour du terrain
-    // ------------------------------------------------------------
-
-    if (maillageModifie)
-    {
-        recalculerToutesLesNormales();
-
-        appliquerMesh();
-    }
-}
 
     // --------------------------------------------------------------------
     // PREVISUALISATION DE LA DEFORMATION
@@ -2294,21 +2362,37 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private void previsualiserDeformation(Vector3 pointMonde)
     {
-        Vector3 centreLocal = transform.InverseTransformPoint(pointMonde);
-        float sqrRayon = rayonDeformation * rayonDeformation;
+        if (p_vertices == null)
+            return;
+
+        Vector3 centreLocal =
+            transform.InverseTransformPoint(pointMonde);
+        p_nombreVoisins = 0;
+
 
         for (int i = 0; i < p_vertices.Length; i++)
         {
-            float dx = p_vertices[i].x - centreLocal.x;
-            float dz = p_vertices[i].z - centreLocal.z;
+            bool dansRayon;
 
-            if ((dx * dx + dz * dz) <= sqrRayon)
+            calculerDistanceNormalisee(
+                p_vertices[i],
+                centreLocal,
+                out dansRayon
+            );
+
+            if (dansRayon)
             {
-                Vector3 positionMondeVertex = transform.TransformPoint(p_vertices[i]);
-                Debug.DrawLine(positionMondeVertex, positionMondeVertex + Vector3.up * 1f, Color.magenta);
+                Vector3 positionMondeVertex =
+                    transform.TransformPoint(p_vertices[i]);
+
+                Debug.DrawLine(
+                    positionMondeVertex,
+                    positionMondeVertex + Vector3.up * 1f,
+                    Color.magenta
+                );
+
+                p_nombreVoisins++;
             }
         }
     }
 }
-
-
