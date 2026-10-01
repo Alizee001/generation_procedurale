@@ -775,7 +775,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 int voisinz = (dz == -1) ? last : (dz == 1) ? 0 : index_z;
 
                 p_membresTmp.Add(voisin);
-                p_indicesTmp.Add(voisinx * voisin.res + voisinz);
+                p_indicesTmp.Add(voisinz * voisin.res + voisinx);
             }
         }
     }
@@ -948,8 +948,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         {
             chunk.mesh.vertices = chunk.vertices;
             chunk.mesh.normals = chunk.normals;
-            chunk.mesh.uv = chunk.uv;
-            chunk.mesh.triangles = chunk.triangles;
+            //chunk.mesh.uv = chunk.uv;
+            //chunk.mesh.triangles = chunk.triangles;
             chunk.mesh.RecalculateBounds();
         }
         if (chunk.collider != null)
@@ -3600,7 +3600,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     {
         foreach (Chunk chunk in liste)
         {
-            int last = chunk.vertices.Length;
+            int last = chunk.res - 1;
             for (int k = 0; k < chunk.res; k++)
             {
                 synchroniserVertex(chunk, k, 0);
