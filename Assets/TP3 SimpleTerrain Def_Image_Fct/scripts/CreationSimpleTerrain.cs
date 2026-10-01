@@ -5,6 +5,8 @@ using UnityEngine.Rendering;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using System.Collections;
+using System.Runtime.CompilerServices;
 
 
 #if UNITY_EDITOR
@@ -369,14 +371,14 @@ public class CreationSimpleTerrain : MonoBehaviour
     // Creation des mesh et vertices pour le LOD
     private Mesh meshLOD0, meshLOD1, meshLOD2;
 
-    private Vector3[] vertices0, vertices1, vertices2;
+    //private Vector3[] vertices0, vertices1, vertices2;
 
-    private Vector3[] normales0, normales1, normales2;
+    //private Vector3[] normales0, normales1, normales2;
 
     // Matrice de correspondance (Indice LOD1 -> Indice LOD0)
-    private int[] mapLOD1to0;
+    //private int[] mapLOD1to0;
 
-    private int[] mapLOD2to0;
+    //private int[] mapLOD2to0;
 
     //[Header("Normales")]
     public enum ModeNormale
@@ -410,14 +412,14 @@ public class CreationSimpleTerrain : MonoBehaviour
     private uint p_dimVertices;
     private uint p_dimTriangles;
 
-    private MeshCollider p_meshCollider;
-    private MeshFilter p_meshFilter;
-    private Mesh p_mesh;
+    //private MeshCollider p_meshCollider;
+    //private MeshFilter p_meshFilter;
+    //private Mesh p_mesh;
 
-    private Vector3[] p_vertices;
-    private Vector3[] p_normals;
-    private Vector2[] p_uv;
-    private int[] p_triangles;
+    //private Vector3[] p_vertices;
+    //private Vector3[] p_normals;
+    //private Vector2[] p_uv;
+    //private int[] p_triangles;
 
     private Camera p_cam;
 
@@ -425,8 +427,8 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private float p_dimInterVertices;
 
-    // Liste des triangles attaches a chaque vertex.
-    private List<int>[] p_trianglesParVertex;
+    // Liste des triangles attachés à chaque vertex.
+    //private List<int>[] p_trianglesParVertex;
 
     // Voisinage aplati en memoire native (format CSR) pour le job des normales.
     private NativeArray<int> p_trianglesNative;
@@ -473,6 +475,39 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     // TP5 : FPS lisses
     private float p_fps;
+    // Partie Chunk
+    private class Chunk
+    {
+        public Vector2Int coord;
+        public GameObject go;
+        public MeshCollider collider;
+        public int res;
+        public Mesh mesh;                       
+        public Vector3[] vertices, normals;
+        public Vector2[] uv;
+        public int[] triangles;
+        public List<int>[] trianglesParVertex;
+        public Mesh mesh1, mesh2;
+        public Vector3[] vertices1, vertices2, normals1, normals2;
+        public int[] map1, map2;
+    }
+    
+    Dictionary<Vector2Int, Chunk> p_chunks = new Dictionary<Vector2Int, Chunk>();
+    Vector2Int gridMin =Vector2Int.zero;
+    Vector2Int gridMax =Vector2Int.zero;
+    private Material p_materialBase;
+    private readonly List<Chunk> p_membresTmp = new List<Chunk>();
+    private readonly List<int> p_indicesTmp = new List<int>();
+
+    private Chunk chunkBase => p_chunks.TryGetValue(Vector2Int.zero, out Chunk c) ? c : null;
+    private Vector3[] p_vertices => chunkBase?.vertices;
+    private Vector3[] p_normals => chunkBase?.normals;
+    private Vector2[] p_uv => chunkBase?.uv;
+    private int[] p_triangles => chunkBase?.triangles;
+    private List<int>[] p_trianglesParVertex => chunkBase?.trianglesParVertex;
+
+
+    private bool p_surbrillance = false;
 
     // --------------------------------------------------------------------
     // RESET
@@ -480,14 +515,14 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     void Reset()
     {
-        p_meshFilter = GetComponent<MeshFilter>();
-        p_meshCollider = GetComponent<MeshCollider>();
+        //p_meshFilter = GetComponent<MeshFilter>();
+        //p_meshCollider = GetComponent<MeshCollider>();
 
-        if (GetComponent<MeshRenderer>() == null)
-            gameObject.AddComponent<MeshRenderer>();
+        //if (GetComponent<MeshRenderer>() == null)
+        //    gameObject.AddComponent<MeshRenderer>();
 
-        if (p_meshCollider == null)
-            p_meshCollider = gameObject.AddComponent<MeshCollider>();
+        //if (p_meshCollider == null)
+        //    p_meshCollider = gameObject.AddComponent<MeshCollider>();
 
         gameObject.layer = LayerMask.NameToLayer("L_PickingTerrain");
     }
@@ -515,6 +550,11 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         p_seedPerlin = Random.Range(0f, 10000f);
+
+        MeshRenderer mr = GetComponent<MeshRenderer>();
+        p_materialBase = mr.sharedMaterial;
+        mr.enabled = false;
+        GetComponent<MeshCollider>().enabled = false;
     }
     // --------------------------------------------------------------------
     // START
@@ -522,16 +562,20 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     void Start()
     {
-        if (puissance2Resolution >= 6)
-        {
-            initialiserLODGroup();
-        }
-        else
-        {
-            creerLeMeshTerrain();
-        }
-    }
+        creerChunk(Vector2Int.zero);
 
+        resolution = (ushort)(1 << puissance2Resolution);
+
+        //if (puissance2Resolution >= 6)
+        //{
+        //    initialiserLODGroup();
+        //}
+        //else
+        //{
+        //    creerLeMeshTerrain();
+        //}
+
+    }
     // --------------------------------------------------------------------
     // LIBERATION DE LA MEMOIRE NATIVE
     // --------------------------------------------------------------------
@@ -546,66 +590,238 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     // INITIALISATION DU GROUPE LOD
     // --------------------------------------------------------------------
-    void initialiserLODGroup()
-    {
-        int resLOD0 = 1 << puissance2Resolution;
-        int resLOD2 = 16;
-        int resLOD1 = 1 << (4 + (puissance2Resolution - 4) / 2);
+    //void initialiserLODGroup()
+    //{
+    //    int resLOD0 = 1 << puissance2Resolution;
+    //    int resLOD2 = 16;
+    //    int resLOD1 = 1 << (4 + (puissance2Resolution - 4) / 2);
 
-        // Creation de la hierarchie LODGroup
-        LODGroup lodGroup = gameObject.AddComponent<LODGroup>();
-        LOD[] lods = new LOD[3];
+    //    // Création de la hiérarchie LODGroup
+    //    LODGroup lodGroup = gameObject.AddComponent<LODGroup>();
+    //    LOD[] lods = new LOD[3];
 
-        p_meshFilter = GetComponent<MeshFilter>();
-        p_meshCollider = GetComponent<MeshCollider>();
+    //    p_meshFilter = GetComponent<MeshFilter>();
+    //    p_meshCollider = GetComponent<MeshCollider>();
 
-        // Creation des 3 enfants MeshRenderer
-        Renderer[] renderer0 = new Renderer[] { creerEnfantsLOD("LOD_0", resLOD0, out meshLOD0, out vertices0, out normales0, out p_uv, out p_triangles) };
-        Renderer[] renderer1 = new Renderer[] { creerEnfantsLOD("LOD_1", resLOD1, out meshLOD1, out vertices1, out normales1, out _, out _) };
-        Renderer[] renderer2 = new Renderer[] { creerEnfantsLOD("LOD_2", resLOD2, out meshLOD2, out vertices2, out normales2, out _, out _) };
+    //    // Création des 3 enfants MeshRenderer
+    //    Renderer[] renderer0 = new Renderer[] { creerEnfantsLOD("LOD_0", resLOD0, out meshLOD0, out vertices0, out normales0, out p_uv, out p_triangles) };
+    //    Renderer[] renderer1 = new Renderer[] { creerEnfantsLOD("LOD_1", resLOD1, out meshLOD1, out vertices1, out normales1, out _, out _) };
+    //    Renderer[] renderer2 = new Renderer[] { creerEnfantsLOD("LOD_2", resLOD2, out meshLOD2, out vertices2, out normales2, out _, out _) };
 
-        // References vers LOD0 pour le picking et le calcul
-        p_mesh = meshLOD0;
-        p_vertices = vertices0;
-        p_normals = normales0;
-        resolution = (ushort)resLOD0;
+    //    // Références vers LOD0 pour le picking et le calcul
+    //    p_mesh = meshLOD0;
+    //    p_vertices = vertices0;
+    //    p_normals = normales0;
+    //    resolution = (ushort)resLOD0;
 
-        p_meshCollider.sharedMesh = p_mesh;
-        bakerVoisins();
+    //    p_meshCollider.sharedMesh = p_mesh;
+    //    bakerVoisins();
 
-        // Ajustement des seuils de basculementde de distance
-        lods[0] = new LOD(0.5f, renderer0);
-        lods[1] = new LOD(0.15f, renderer1);
-        lods[2] = new LOD(0.02f, renderer2);
+    //    // Ajustement des seuils de basculementde de distance
+    //    lods[0] = new LOD(0.5f, renderer0);
+    //    lods[1] = new LOD(0.15f, renderer1);
+    //    lods[2] = new LOD(0.02f, renderer2);
 
-        lodGroup.SetLODs(lods);
-        lodGroup.RecalculateBounds();
+    //    lodGroup.SetLODs(lods);
+    //    lodGroup.RecalculateBounds();
 
-        calculerMapping(resLOD0, resLOD1, out mapLOD1to0);
-        calculerMapping(resLOD0, resLOD2, out mapLOD2to0);
+    //    calculerMapping(resLOD0, resLOD1, out mapLOD1to0);
+    //    calculerMapping(resLOD0, resLOD2, out mapLOD2to0);
 
-    }
+    //}
 
     // --------------------------------------------------------------------
     // CREATION DES ENFANTS DES LOD
     // --------------------------------------------------------------------
-    Renderer creerEnfantsLOD(string nom, int res, out Mesh mesh, out Vector3[] vertices, out Vector3[] norms, out Vector2[] uvs, out int[] tris)
+    Renderer creerEnfantsLOD(Transform parent, string nom, int res, out Mesh mesh, out Vector3[] vertices, out Vector3[] norms, out Vector2[] uvs, out int[] tris)
     {
         GameObject child = new GameObject(nom);
-        child.transform.SetParent(this.transform, false);
+        child.transform.SetParent(parent, false);
 
         MeshFilter mf = child.AddComponent<MeshFilter>();
         MeshRenderer mr = child.AddComponent<MeshRenderer>();
         //mr.sharedMaterial = GetComponent<MeshRenderer>().sharedMaterial;
 
-        MeshRenderer mainRenderer = GetComponent<MeshRenderer>();
-        if (mainRenderer != null)
-            mr.sharedMaterial = mainRenderer.sharedMaterial;
+        mr.sharedMaterial = p_materialBase;
+
+        //MeshRenderer mainRenderer = GetComponent<MeshRenderer>();
+        //if (mainRenderer != null)
+        //    mr.sharedMaterial = mainRenderer.sharedMaterial;
 
         // Generer inline du maillage selon la resolution passe en parametre
         mesh = creerMeshGrille(res, out vertices, out norms, out uvs, out tris);
         mf.sharedMesh = mesh;
         return mr;
+    }
+
+    private List<Chunk> chunkTouches (Vector3 pointMonde)
+    {
+        List<Chunk> chunks = new List<Chunk>();
+        float origine = CentrerPivot ? dimension * 0.5f : 0f;
+        foreach (Chunk chunk in p_chunks.Values)
+        {
+            float marg = rayonDeformation + 2f * dimension / (chunk.res - 1);
+            Vector3 localPoint = chunk.go.transform.InverseTransformPoint(pointMonde);
+            if (localPoint.x >= -origine - marg && localPoint.x <= dimension - origine +marg &&
+                localPoint.z >= -origine - marg && localPoint.z <= dimension - origine +marg)
+            {
+                chunks.Add(chunk);
+            }
+        }
+        return chunks;
+    }
+
+    private Chunk creerChunk(Vector2Int coord)
+    {
+        Chunk chunk = new Chunk();
+        chunk.coord = coord;
+        chunk.res = 1 << puissance2Resolution;
+
+        chunk.go = new GameObject("Chunk_" + coord.x + "_" + coord.y);
+        chunk.go.transform.SetParent(transform, false);
+        chunk.go.transform.localPosition = new Vector3(coord.x * dimension, 0f, coord.y * dimension);
+        chunk.go.layer = gameObject.layer;
+        chunk.collider = chunk.go.AddComponent<MeshCollider>();
+
+        if (puissance2Resolution >= 6)
+        {
+            creerLODsChunk(chunk);
+        }
+        else
+        {
+            chunk.mesh = creerMeshGrille(chunk.res, out chunk.vertices, out chunk.normals, out chunk.uv, out chunk.triangles);
+            chunk.go.AddComponent<MeshFilter>().sharedMesh = chunk.mesh;
+            chunk.go.AddComponent<MeshRenderer>().sharedMaterial = p_materialBase;
+        }
+
+        bakerVoisins(chunk);
+        p_chunks[coord] = chunk;
+
+        // Les vertices frontières reprennent position ET normale de leurs jumeaux existants
+        int last = chunk.res - 1;
+        for (int i =0; i < chunk.res; i++)
+        {
+            copierDepuisJumeaux(chunk, i, 0);
+            copierDepuisJumeaux(chunk, i, last);
+            copierDepuisJumeaux(chunk, 0, i);
+            copierDepuisJumeaux(chunk, last, i);
+        }
+
+        appliquerMeshChunk(chunk);
+        return chunk;
+    }
+
+    private void copierDepuisJumeaux(Chunk chunk, int index_x, int index_z)
+    {
+        trouverJumeaux(chunk, index_x, index_z);
+        if (p_membresTmp.Count == 0)
+            return;
+        int index = index_z * chunk.res + index_x;
+        chunk.vertices[index].y = p_membresTmp[0].vertices[p_indicesTmp[0]].y;
+        chunk.normals[index] = p_membresTmp[0].normals[p_indicesTmp[0]];
+    }
+
+    private void creerLODsChunk(Chunk chunk)
+    {
+        int resLOD1 = 1 << (4 + (puissance2Resolution - 4) / 2);
+        int resLOD2 = 16;
+
+        LODGroup lodGroup = chunk.go.AddComponent<LODGroup>();
+        Renderer r0 = creerEnfantsLOD(chunk.go.transform, "LOD_0", chunk.res, out chunk.mesh, out chunk.vertices, out chunk.normals, out chunk.uv, out chunk.triangles);
+        Renderer r1 = creerEnfantsLOD(chunk.go.transform, "LOD_1", resLOD1, out chunk.mesh1, out chunk.vertices1, out chunk.normals1, out _, out _);
+        Renderer r2 = creerEnfantsLOD(chunk.go.transform, "LOD_2", resLOD2, out chunk.mesh2, out chunk.vertices2, out chunk.normals2, out _, out _);
+
+        lodGroup.SetLODs(new LOD[] {
+            new LOD(0.5f, new Renderer[] { r0 }),
+            new LOD(0.15f, new Renderer[] { r1 }),
+            new LOD(0.02f, new Renderer[] { r2 })
+        });
+        lodGroup.RecalculateBounds();
+
+        calculerMapping(chunk.res, resLOD1, out chunk.map1);
+        calculerMapping(chunk.res, resLOD2, out chunk.map2);
+
+    }
+
+    private void trouverJumeaux(Chunk chunk, int index_x, int index_z)
+    {
+        p_membresTmp.Clear();
+        p_indicesTmp.Clear();
+        int last = chunk.res - 1;
+
+        int dxMin = (index_x == 0) ? -1 : 0;
+        int dxMax = (index_x == last) ? 1 : 0;
+        int dzMin = (index_z == 0) ? -1 : 0;
+        int dzMax = (index_z == last) ? 1 : 0;
+
+        for (int dz = dzMin; dz <= dzMax; dz++)
+        {
+            for (int dx = dxMin; dx <= dxMax; dx++)
+            {
+                if (dx == 0 && dz == 0)
+                    continue;
+                if (!p_chunks.TryGetValue(new Vector2Int(chunk.coord.x + dx, chunk.coord.y + dz), out Chunk voisin))
+                    continue;
+                 int voisinx = (dx == -1) ? last : (dx == 1) ? 0 : index_x;
+                 int voisinz = (dz == -1) ? last : (dz == 1) ? 0 : index_z;
+
+                p_membresTmp.Add(voisin);
+                p_indicesTmp.Add(voisinx * voisin.res + voisinz);
+            }
+        }
+    }
+
+    private Vector3 sommeNormales(Chunk chunk, int vertex)
+    {
+        Vector3 somme = Vector3.zero;
+
+        foreach (int triangleIndex in chunk.trianglesParVertex[vertex])
+        {
+            Vector3 normale = calculerNormaleTriangle(chunk, triangleIndex);
+            if (modeNormale == ModeNormale.Surface)
+                normale *= calculerSurfaceTriangle(chunk, triangleIndex);
+            else if (modeNormale == ModeNormale.Angle)
+                normale *= calculerAngleAuVertex(chunk, triangleIndex, vertex);
+            somme += normale;
+        }
+        return somme;
+    }
+
+    private void recalculerNormalesChunk(Chunk chunk)
+    {
+        int last = chunk.res - 1;
+        for (int index_z = 0; index_z < chunk.res; index_z++)
+        {
+            for (int index_x = 0; index_x < chunk.res; index_x++)
+            {
+                int i = index_z * chunk.res + index_x;
+                Vector3 somme = sommeNormales(chunk, i);
+                bool bord = (index_x == 0 || index_x == last || index_z == 0 || index_z == last);
+                if (bord)
+                {
+                    trouverJumeaux(chunk, index_x, index_z);
+                    for (int k = 0; k < p_membresTmp.Count; k++)
+                    {
+                        Chunk voisin = p_membresTmp[k];
+                        int indexVoisin = p_indicesTmp[k];
+                        somme += sommeNormales(voisin, indexVoisin);
+                    }
+                    
+                }
+                Vector3 normale = somme.sqrMagnitude < 0.000001f ? Vector3.up : somme.normalized;
+                chunk.normals[i] = normale;
+
+                if (bord)
+                {
+                    for (int k = 0; k < p_membresTmp.Count; k++)
+                    {
+                        Chunk voisin = p_membresTmp[k];
+                        int indexVoisin = p_indicesTmp[k];
+                        voisin.normals[indexVoisin] = normale;
+                    }
+                }
+            }
+        }
     }
 
     // --------------------------------------------------------------------
@@ -632,116 +848,348 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     // SYNCHRONISATION DES MODIFS DE HAUTEUR ET DE NORMAL
     // --------------------------------------------------------------------
-    private void propagerLOD()
+    private void propagerLOD(Chunk chunk)
     {
         if (puissance2Resolution < 6)
             return;
 
-        // Mise a jour du LOD1
-        if (meshLOD1 != null && mapLOD1to0 != null)
+        // Mise à jour du LOD1
+        if (chunk.mesh1 != null)
+            propagerVers(chunk, chunk.mesh1, chunk.vertices1, chunk.normals1, chunk.map1);
+
+        // Mise à jour du LOD2
+        if (chunk.mesh2 != null)
+            propagerVers(chunk, chunk.mesh2, chunk.vertices2, chunk.normals2, chunk.map2);
+
+
+        //if(meshLOD1 != null && mapLOD1to0 != null)
+        //{
+        //    for (int i = 0; i < vertices1.Length; i++)
+        //    {
+        //        int i0 = mapLOD1to0[i];
+        //        vertices1[i].y = vertices0[i0].y;
+        //    }
+        //    meshLOD1.vertices = vertices1;
+        //    meshLOD1.RecalculateNormals();
+        //}
+        //// Mise à jour du LOD2
+        //if(meshLOD2 != null && mapLOD2to0 != null)
+        //{
+        //    for (int i = 0; i < vertices2.Length; i++)
+        //    {
+        //        int i0 = mapLOD2to0[i];
+        //        vertices2[i].y = vertices0[i0].y;
+        //    }
+        //    meshLOD2.vertices = vertices2;
+        //    meshLOD2.RecalculateNormals();
+        //}
+    }
+
+    private void propagerVers(Chunk chunk, Mesh mesh, Vector3[] vertices, Vector3[] normals, int[] map)
+    {
+        for (int i = 0; i < vertices.Length; i++)
         {
-            for (int i = 0; i < vertices1.Length; i++)
-            {
-                int i0 = mapLOD1to0[i];
-                vertices1[i].y = vertices0[i0].y;
-            }
-            meshLOD1.vertices = vertices1;
-            meshLOD1.RecalculateNormals();
+            vertices[i].y = chunk.vertices[map[i]].y;
+            normals[i] = chunk.normals[map[i]];
         }
-        // Mise a jour du LOD2
-        if (meshLOD2 != null && mapLOD2to0 != null)
+        mesh.vertices = vertices;
+        mesh.normals = normals;
+        mesh.RecalculateBounds();
+
+    }
+
+
+    private void etendreTerrain(Vector2Int direction)
+    {
+        if (p_chunks.Count == 0)
+        return;
+
+        if (direction.x != 0)
         {
-            for (int i = 0; i < vertices2.Length; i++)
+            int x = (direction.x > 0) ? gridMax.x + 1 : gridMin.x - 1;
+            for (int z = gridMin.y; z <= gridMax.y; z++)
             {
-                int i0 = mapLOD2to0[i];
-                vertices2[i].y = vertices0[i0].y;
+                creerChunk(new Vector2Int(x, z));
             }
-            meshLOD2.vertices = vertices2;
-            meshLOD2.RecalculateNormals();
+            if (direction.x > 0)
+                gridMax.x = x;
+            else
+                gridMin.x = x;
+
         }
+        else
+        {
+            int z = (direction.y > 0) ? gridMax.y + 1 : gridMin.y - 1;
+            for (int x = gridMin.x; x <= gridMax.x; x++)
+            {
+                creerChunk(new Vector2Int(x, z));
+            }
+            if (direction.y > 0)
+                gridMax.y = z;
+            else
+                gridMin.y = z;
+        }
+
+            
+    }
+
+    private void appliquerMeshChunk(Chunk chunk)
+    {
+        if (chunk.mesh != null)
+        {
+            chunk.mesh.vertices = chunk.vertices;
+            chunk.mesh.normals = chunk.normals;
+            chunk.mesh.uv = chunk.uv;
+            chunk.mesh.triangles = chunk.triangles;
+            chunk.mesh.RecalculateBounds();
+        }
+        if (chunk.collider != null)
+        {
+            chunk.collider.sharedMesh = null;
+            chunk.collider.sharedMesh = chunk.mesh;
+        }
+        propagerLOD(chunk);
     }
 
     // --------------------------------------------------------------------
     // CREATION DU MAILLAGE
     // --------------------------------------------------------------------
-    private void creerLeMeshTerrain()
+
+    //private void creerLeMeshTerrain(Chunk chunk)
+    //{
+    //    p_meshFilter = GetComponent<MeshFilter>();
+    //    p_meshCollider = GetComponent<MeshCollider>();
+
+    //    if (p_meshFilter == null)
+    //        p_meshFilter = gameObject.AddComponent<MeshFilter>();
+
+    //    if (p_meshCollider == null)
+    //        p_meshCollider = gameObject.AddComponent<MeshCollider>();
+
+
+    //    // ------------------------------------------------------------
+    //    // Résolution
+    //    // ------------------------------------------------------------
+
+    //    int resolutionInt = 1 << puissance2Resolution;
+
+    //    resolution = (ushort)Mathf.Clamp(
+    //        resolutionInt,
+    //        2,
+    //        ushort.MaxValue
+    //    );
+
+    //    resolutionInt = resolution;
+
+
+    //    // ------------------------------------------------------------
+    //    // Nombre de vertices
+    //    // ------------------------------------------------------------
+
+    //    long nombreVertices = (long)resolutionInt * resolutionInt;
+
+    //    long nombreTriangles =
+    //        2L *
+    //        (resolutionInt - 1) *
+    //        (resolutionInt - 1);
+
+
+    //    if (nombreVertices > int.MaxValue)
+    //    {
+    //        Debug.LogError("Le maillage contient trop de vertices.");
+    //        return;
+    //    }
+
+
+    //    p_dimVertices = (uint)nombreVertices;
+    //    p_dimTriangles = (uint)nombreTriangles;
+
+
+    //    // ------------------------------------------------------------
+    //    // Espacement
+    //    // ------------------------------------------------------------
+
+    //    p_dimInterVertices =
+    //        dimension / (resolutionInt - 1);
+
+
+    //    // ------------------------------------------------------------
+    //    // Création des tableaux
+    //    // ------------------------------------------------------------
+
+    //    //p_vertices = new Vector3[nombreVertices];
+    //    //p_normals = new Vector3[nombreVertices];
+    //    //p_uv = new Vector2[nombreVertices];
+
+    //    //p_triangles = new int[nombreTriangles * 3];
+
+
+    //    // ------------------------------------------------------------
+    //    // Création des vertices
+    //    // ------------------------------------------------------------
+
+    //    //float origine = CentrerPivot
+    //    //    ? dimension * 0.5f
+    //    //    : 0f;
+
+
+    //    //for (int z = 0; z < resolutionInt; z++)
+    //    //{
+    //    //    for (int x = 0; x < resolutionInt; x++)
+    //    //    {
+    //    //        int index = z * resolutionInt + x;
+
+    //    //        float px = x * p_dimInterVertices - origine;
+    //    //        float pz = z * p_dimInterVertices - origine;
+
+    //    //        p_vertices[index] =
+    //    //            new Vector3(px, 0f, pz);
+
+
+    //    //        // UV entre 0 et 1.
+    //    //        float u =
+    //    //            (float)x / (resolutionInt - 1);
+
+    //    //        float v =
+    //    //            (float)z / (resolutionInt - 1);
+
+    //    //        p_uv[index] =
+    //    //            new Vector2(u, v);
+
+    //    //        p_normals[index] =
+    //    //            Vector3.up;
+    //    //    }
+    //    //}
+
+
+    //    // ------------------------------------------------------------
+    //    // Création des triangles
+    //    //
+    //    // 3 -- 2
+    //    // |  / |
+    //    // 0 -- 1
+    //    //
+    //    // ------------------------------------------------------------
+
+    //    //int triangleIndex = 0;
+
+    //    //for (int z = 0; z < resolutionInt - 1; z++)
+    //    //{
+    //    //    for (int x = 0; x < resolutionInt - 1; x++)
+    //    //    {
+    //    //        int v0 = z * resolutionInt + x;
+    //    //        int v1 = v0 + 1;
+    //    //        int v2 = v0 + resolutionInt;
+    //    //        int v3 = v2 + 1;
+
+
+    //    //        // Triangle 1
+    //    //        p_triangles[triangleIndex++] = v0;
+    //    //        p_triangles[triangleIndex++] = v2;
+    //    //        p_triangles[triangleIndex++] = v1;
+
+
+    //    //        // Triangle 2
+    //    //        p_triangles[triangleIndex++] = v1;
+    //    //        p_triangles[triangleIndex++] = v2;
+    //    //        p_triangles[triangleIndex++] = v3;
+    //    //    }
+    //    //}
+
+
+    //    // ------------------------------------------------------------
+    //    // Création du Mesh
+    //    // ------------------------------------------------------------
+
+    //    //if (p_mesh != null)
+    //    //{
+    //    //    Destroy(p_mesh);
+    //    //}
+
+    //    //p_mesh = new Mesh();
+
+    //    //p_mesh.name = "TerrainProcedural";
+
+
+    //    // ------------------------------------------------------------
+    //    // IMPORTANT :
+    //    // Plus de 65535 vertices => indices 32 bits.
+    //    // ------------------------------------------------------------
+
+    //    //if (nombreVertices > 65535)
+    //    //{
+    //    //    p_mesh.indexFormat = IndexFormat.UInt32;
+    //    //}
+    //    //else
+    //    //{
+    //    //    p_mesh.indexFormat = IndexFormat.UInt16;
+    //    //}
+
+
+    //    //p_mesh.vertices = p_vertices;
+    //    //p_mesh.uv = p_uv;
+    //    //p_mesh.triangles = p_triangles;
+    //    //p_mesh.normals = p_normals;
+
+    //    //p_mesh.RecalculateBounds();
+
+    //    p_mesh = creerMeshGrille(resolutionInt, out p_vertices, out p_normals, out p_uv, out p_triangles);
+
+    //    p_meshFilter.sharedMesh = p_mesh;
+
+    //    p_meshCollider.sharedMesh = null;
+    //    p_meshCollider.sharedMesh = p_mesh;
+
+
+    //    // ------------------------------------------------------------
+    //    // Baking des voisins
+    //    // ------------------------------------------------------------
+
+    //    bakerVoisins();
+
+
+    //    Debug.Log(
+    //        "Terrain créé : " +
+    //        p_dimVertices +
+    //        " vertices, " +
+    //        p_dimTriangles +
+    //        " triangles."
+    //    );
+    //}
+
+    private IEnumerator surligneChunks()
     {
-        p_meshFilter = GetComponent<MeshFilter>();
-        p_meshCollider = GetComponent<MeshCollider>();
+        p_surbrillance = true;
+        List<Material> temp = new List<Material>();
+        int n = 0;
 
-        if (p_meshFilter == null)
-            p_meshFilter = gameObject.AddComponent<MeshFilter>();
-
-        if (p_meshCollider == null)
-            p_meshCollider = gameObject.AddComponent<MeshCollider>();
-
-        // ------------------------------------------------------------
-        // Resolution
-        // ------------------------------------------------------------
-
-        int resolutionInt = 1 << puissance2Resolution;
-
-        resolution = (ushort)Mathf.Clamp(
-            resolutionInt,
-            2,
-            ushort.MaxValue
-        );
-
-        resolutionInt = resolution;
-
-        // ------------------------------------------------------------
-        // Nombre de vertices
-        // ------------------------------------------------------------
-
-        long nombreVertices = (long)resolutionInt * resolutionInt;
-
-        long nombreTriangles =
-            2L *
-            (resolutionInt - 1) *
-            (resolutionInt - 1);
-
-        if (nombreVertices > int.MaxValue)
+        foreach (Chunk chunk in p_chunks.Values)
         {
-            Debug.LogError("Le maillage contient trop de vertices.");
-            return;
+            Material mats = new Material(p_materialBase);
+            mats.color = Color.HSVToRGB((n++ * 0.17f)%1f, 0.7f, 1f);
+            temp.Add(mats);
+            foreach (MeshRenderer mr in chunk.go.GetComponentsInChildren<MeshRenderer>())
+            {
+                mr.material = mats;
+            }
         }
 
-        p_dimVertices = (uint)nombreVertices;
-        p_dimTriangles = (uint)nombreTriangles;
+        yield return new WaitForSeconds(3f);
 
-        // ------------------------------------------------------------
-        // Espacement
-        // ------------------------------------------------------------
+        foreach (Chunk chunk in p_chunks.Values)
+        {
+            foreach (MeshRenderer mr in chunk.go.GetComponentsInChildren<MeshRenderer>())
+            {
+                mr.material = p_materialBase;
+            }
+        }
 
-        p_dimInterVertices =
-            dimension / (resolutionInt - 1);
+        foreach (Material mats in temp)
+        {
+            Destroy(mats);
+        }
 
-        // ------------------------------------------------------------
-        // Creation du Mesh (vertices, uv, normales, triangles)
-        // ------------------------------------------------------------
-
-        p_mesh = creerMeshGrille(resolutionInt, out p_vertices, out p_normals, out p_uv, out p_triangles);
-
-        p_meshFilter.sharedMesh = p_mesh;
-
-        p_meshCollider.sharedMesh = null;
-        p_meshCollider.sharedMesh = p_mesh;
-
-
-        // ------------------------------------------------------------
-        // Baking des voisins
-        // ------------------------------------------------------------
-
-        bakerVoisins();
-
-
-        Debug.Log(
-            "Terrain cree : " +
-            p_dimVertices +
-            " vertices, " +
-            p_dimTriangles +
-            " triangles."
-        );
+        p_surbrillance = false;
     }
 
     private Mesh creerMeshGrille(int res, out Vector3[] vertices, out Vector3[] norms, out Vector2[] uvs, out int[] tris)
@@ -808,32 +1256,31 @@ public class CreationSimpleTerrain : MonoBehaviour
     // BAKING DES VOISINS
     // --------------------------------------------------------------------
 
-    private void bakerVoisins()
+    private void bakerVoisins(Chunk chunk)
     {
-        p_trianglesParVertex =
-            new List<int>[p_vertices.Length];
+        chunk.trianglesParVertex =
+            new List<int>[chunk.vertices.Length];
 
-        if (p_triangles == null || p_vertices == null)
+        if (chunk.triangles == null || chunk.vertices == null)
             return;
 
-        for (int i = 0; i < p_trianglesParVertex.Length; i++)
+        for (int i = 0; i < chunk.trianglesParVertex.Length; i++)
         {
-            p_trianglesParVertex[i] =
+            chunk.trianglesParVertex[i] =
                 new List<int>();
         }
 
 
-        // Chaque triangle est associe a ses 3 vertices.
-        for (int i = 0; i < p_triangles.Length; i += 3)
+        // Chaque triangle est associé à ses 3 vertices.
+        for (int i = 0; i < chunk.triangles.Length; i += 3)
         {
-            int a = p_triangles[i];
-            int b = p_triangles[i + 1];
-            int c = p_triangles[i + 2];
+            int a = chunk.triangles[i];
+            int b = chunk.triangles[i + 1];
+            int c = chunk.triangles[i + 2];
 
-
-            p_trianglesParVertex[a].Add(i);
-            p_trianglesParVertex[b].Add(i);
-            p_trianglesParVertex[c].Add(i);
+            chunk.trianglesParVertex[a].Add(i);
+            chunk.trianglesParVertex[b].Add(i);
+            chunk.trianglesParVertex[c].Add(i);
         }
 
         // TP5 : version aplatie (natif) pour le job des normales.
@@ -902,14 +1349,15 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private void remettreTerrainPlat()
     {
-        if (p_vertices == null)
-            return;
-
-
-        for (int i = 0; i < p_vertices.Length; i++)
+        foreach (var chunk in p_chunks.Values)
         {
-            p_vertices[i].y = 0f;
+            for (int i = 0; i < chunk.vertices.Length; i++)
+            {
+                chunk.vertices[i].y = 0f;
+            }
+            
         }
+        
         recalculerToutesLesNormales();
         appliquerMesh();
     }
@@ -920,26 +1368,30 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private void appliquerMesh()
     {
-        if (p_mesh == null)
-            return;
-
-        p_mesh.vertices = p_vertices;
-        p_mesh.normals = p_normals;
-        // (p_mesh.uv = p_uv retire : les UV ne changent jamais apres la creation)
-
-        p_mesh.RecalculateBounds();
-
-        if (puissance2Resolution < 6)
+        foreach (var chunk in p_chunks.Values)
         {
-            p_meshFilter.sharedMesh = p_mesh;
+            appliquerMeshChunk(chunk);
         }
+        //if (p_mesh == null)
+        //    return;
+
+        //p_mesh.vertices = p_vertices;
+        //p_mesh.normals = p_normals;
+        //p_mesh.uv = p_uv;
+
+        //p_mesh.RecalculateBounds();
+
+        //if(puissance2Resolution < 6)
+        //{
+        //    p_meshFilter.sharedMesh = p_mesh;
+        //}
 
 
-        p_meshCollider.sharedMesh = null;
-        p_meshCollider.sharedMesh = p_mesh;
+        //p_meshCollider.sharedMesh = null;
+        //p_meshCollider.sharedMesh = p_mesh;
 
-        // Propagation des modification aux sous maillages LOD1 et LOD2
-        propagerLOD();
+        //// Propagation des modification aux sous maillages LOD1 et LOD2
+        //propagerLOD();
     }
 
     // --------------------------------------------------------------------
@@ -1256,20 +1708,21 @@ public class CreationSimpleTerrain : MonoBehaviour
     // NORMALE D'UN TRIANGLE
     // --------------------------------------------------------------------
     private Vector3 calculerNormaleTriangle(
+        Chunk chunk,
         int triangleIndex)
     {
         int i0 =
-            p_triangles[triangleIndex];
+            chunk.triangles[triangleIndex];
 
         int i1 =
-            p_triangles[triangleIndex + 1];
+            chunk.triangles[triangleIndex + 1];
 
         int i2 =
-            p_triangles[triangleIndex + 2];
+            chunk.triangles[triangleIndex + 2];
 
-        Vector3 v0 = p_vertices[i0];
-        Vector3 v1 = p_vertices[i1];
-        Vector3 v2 = p_vertices[i2];
+        Vector3 v0 = chunk.vertices[i0];
+        Vector3 v1 = chunk.vertices[i1];
+        Vector3 v2 = chunk.vertices[i2];
 
         Vector3 V01 =
             v1 - v0;
@@ -1292,20 +1745,21 @@ public class CreationSimpleTerrain : MonoBehaviour
     // SURFACE DU TRIANGLE
     // --------------------------------------------------------------------
     private float calculerSurfaceTriangle(
+        Chunk chunk,
         int triangleIndex)
     {
         int i0 =
-            p_triangles[triangleIndex];
+            chunk.triangles[triangleIndex];
 
         int i1 =
-            p_triangles[triangleIndex + 1];
+            chunk.triangles[triangleIndex + 1];
 
         int i2 =
-            p_triangles[triangleIndex + 2];
+            chunk.triangles[triangleIndex + 2];
 
-        Vector3 v0 = p_vertices[i0];
-        Vector3 v1 = p_vertices[i1];
-        Vector3 v2 = p_vertices[i2];
+        Vector3 v0 = chunk.vertices[i0];
+        Vector3 v1 = chunk.vertices[i1];
+        Vector3 v2 = chunk.vertices[i2];
 
         Vector3 a = v1 - v0;
         Vector3 b = v2 - v0;
@@ -1317,17 +1771,18 @@ public class CreationSimpleTerrain : MonoBehaviour
     // ANGLE DU TRIANGLE AU NIVEAU DU VERTEX
     // --------------------------------------------------------------------
     private float calculerAngleAuVertex(
+        Chunk chunk,
         int triangleIndex,
         int vertex)
     {
         int i0 =
-            p_triangles[triangleIndex];
+            chunk.triangles[triangleIndex];
 
         int i1 =
-            p_triangles[triangleIndex + 1];
+            chunk.triangles[triangleIndex + 1];
 
         int i2 =
-            p_triangles[triangleIndex + 2];
+            chunk.triangles[triangleIndex + 2];
 
         int autre1;
         int autre2;
@@ -1349,14 +1804,14 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         Vector3 a =
-            p_vertices[autre1]
+            chunk.vertices[autre1]
             -
-            p_vertices[vertex];
+            chunk.vertices[vertex];
 
         Vector3 b =
-            p_vertices[autre2]
+            chunk.vertices[autre2]
             -
-            p_vertices[vertex];
+            chunk.vertices[vertex];
 
         if (a.sqrMagnitude < 0.000001f ||
             b.sqrMagnitude < 0.000001f)
@@ -1370,103 +1825,113 @@ public class CreationSimpleTerrain : MonoBehaviour
     // CALCUL DE LA NORMALE D'UN VERTEX (version C# sequentielle d'origine)
     // --------------------------------------------------------------------
 
-    private void calculerNormaleVertex(
-        uint num_Vertex)
-    {
-        int vertex =
-            (int)num_Vertex;
-
-        if (vertex < 0 ||
-            vertex >= p_vertices.Length)
-            return;
-
-        List<int> triangles =
-            p_trianglesParVertex[vertex];
-
-        if (triangles == null ||
-            triangles.Count == 0)
-        {
-            p_normals[vertex] =
-                Vector3.up;
-
-            return;
-        }
-        Vector3 normaleFinale =
-            Vector3.zero;
-        // ------------------------------------------------------------
-        // A - Moyenne simple
-        // ------------------------------------------------------------
-
-        if (modeNormale == ModeNormale.Basique)
-        {
-            foreach (int triangleIndex in triangles)
-            {
-                normaleFinale +=
-                    calculerNormaleTriangle(
-                        triangleIndex
-                    );
-            }
-        }
-        // ------------------------------------------------------------
-        // B - Moyenne ponderee par la surface
-        // ------------------------------------------------------------
-
-        else if (modeNormale == ModeNormale.Surface)
-        {
-            foreach (int triangleIndex in triangles)
-            {
-                Vector3 normale =
-                    calculerNormaleTriangle(
-                        triangleIndex
-                    );
-
-                float surface =
-                    calculerSurfaceTriangle(
-                        triangleIndex
-                    );
-
-                normaleFinale +=
-                    normale * surface;
-            }
-        }
-
-        // ------------------------------------------------------------
-        // C - Moyenne ponderee par l'angle
-        // ------------------------------------------------------------
-
-        else if (modeNormale == ModeNormale.Angle)
-        {
-            foreach (int triangleIndex in triangles)
-            {
-                Vector3 normale =
-                    calculerNormaleTriangle(
-                        triangleIndex
-                    );
-
-                float angle =
-                    calculerAngleAuVertex(
-                        triangleIndex,
-                        vertex
-                    );
-
-                normaleFinale +=
-                    normale * angle;
-            }
-        }
+    //private void calculerNormaleVertex(
+    //    uint num_Vertex)
+    //{
+    //    int vertex =
+    //        (int)num_Vertex;
 
 
-        if (normaleFinale.sqrMagnitude <
-            0.000001f)
-        {
-            p_normals[vertex] =
-                Vector3.up;
-        }
-        else
-        {
-            p_normals[vertex] =
-                normaleFinale.normalized;
-        }
-    }
+    //    if (vertex < 0 ||
+    //        vertex >= p_vertices.Length)
+    //        return;
+
+
+    //    List<int> triangles =
+    //        p_trianglesParVertex[vertex];
+
+
+    //    if (triangles == null ||
+    //        triangles.Count == 0)
+    //    {
+    //        p_normals[vertex] =
+    //            Vector3.up;
+
+    //        return;
+    //    }
+
+
+    //    Vector3 normaleFinale =
+    //        Vector3.zero;
+
+
+    //    // ------------------------------------------------------------
+    //    // A - Moyenne simple
+    //    // ------------------------------------------------------------
+
+    //    if (modeNormale == ModeNormale.Basique)
+    //    {
+    //        foreach (int triangleIndex in triangles)
+    //        {
+    //            normaleFinale +=
+    //                calculerNormaleTriangle(
+    //                    triangleIndex
+    //                );
+    //        }
+    //    }
+
+
+    //    // ------------------------------------------------------------
+    //    // B - Moyenne pondérée par la surface
+    //    // ------------------------------------------------------------
+
+    //    else if (modeNormale == ModeNormale.Surface)
+    //    {
+    //        foreach (int triangleIndex in triangles)
+    //        {
+    //            Vector3 normale =
+    //                calculerNormaleTriangle(
+    //                    triangleIndex
+    //                );
+
+    //            float surface =
+    //                calculerSurfaceTriangle(
+    //                    triangleIndex
+    //                );
+
+    //            normaleFinale +=
+    //                normale * surface;
+    //        }
+    //    }
+
+
+    //    // ------------------------------------------------------------
+    //    // C - Moyenne pondérée par l'angle
+    //    // ------------------------------------------------------------
+
+    //    else if (modeNormale == ModeNormale.Angle)
+    //    {
+    //        foreach (int triangleIndex in triangles)
+    //        {
+    //            Vector3 normale =
+    //                calculerNormaleTriangle(
+    //                    triangleIndex
+    //                );
+
+    //            float angle =
+    //                calculerAngleAuVertex(
+    //                    triangleIndex,
+    //                    vertex
+    //                );
+
+    //            normaleFinale +=
+    //                normale * angle;
+    //        }
+    //    }
+
+
+    //    if (normaleFinale.sqrMagnitude <
+    //        0.000001f)
+    //    {
+    //        p_normals[vertex] =
+    //            Vector3.up;
+    //    }
+    //    else
+    //    {
+    //        p_normals[vertex] =
+    //            normaleFinale.normalized;
+    //    }
+    //}
 
     // --------------------------------------------------------------------
     // RECALCUL DE TOUTES LES NORMALES (job + Burst, repli sequentiel)
@@ -1474,25 +1939,30 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private void recalculerToutesLesNormales()
     {
-        if (p_vertices == null ||
-            p_trianglesParVertex == null)
+        if (p_chunks.Count == 0 || p_vertices == null)
             return;
 
-        // Repli : ancien code sequentiel
+        if (p_chunks.Count > 1)
+        {
+            foreach (Chunk chunk in p_chunks.Values)
+                recalculerNormalesChunk(chunk);
+            return;
+        }
+
         if (!utiliserJobNormales || !p_voisinsNativesPrets)
         {
-            for (uint i = 0; i < p_vertices.Length; i++)
-            {
-                calculerNormaleVertex(i);
-            }
+            recalculerNormalesChunk(chunkBase);
             return;
         }
 
         NativeArray<Vector3> verticesNative =
             new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
         NativeArray<Vector3> normalesNative =
-            new NativeArray<Vector3>(p_vertices.Length, Allocator.TempJob,
-                                     NativeArrayOptions.UninitializedMemory);
+            new NativeArray<Vector3>(
+                p_vertices.Length,
+                Allocator.TempJob,
+                NativeArrayOptions.UninitializedMemory);
 
         NormalesVertexJob job = new NormalesVertexJob
         {
@@ -1511,9 +1981,6 @@ public class CreationSimpleTerrain : MonoBehaviour
         verticesNative.Dispose();
         normalesNative.Dispose();
     }
-    // --------------------------------------------------------------------
-    // PICKING TERRAIN
-    // --------------------------------------------------------------------
 
     private bool effectuerPicking(
         out RaycastHit hit)
@@ -1915,31 +2382,39 @@ public class CreationSimpleTerrain : MonoBehaviour
     }
     private void mesurerNormales()
     {
-        if (!p_voisinsNativesPrets)
+        if (p_vertices == null || !p_voisinsNativesPrets || chunkBase == null)
         {
             Debug.LogWarning("Voisins natifs non prets.");
             return;
         }
 
-        const int rep = 10;   // l'ancienne boucle est lente : peu de repetitions
+        const int rep = 10;
 
-        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+        System.Diagnostics.Stopwatch chrono =
+            System.Diagnostics.Stopwatch.StartNew();
+
         for (int r = 0; r < rep; r++)
-        {
-            for (uint i = 0; i < p_vertices.Length; i++)
-                calculerNormaleVertex(i);
-        }
-        double sequentiel = chrono.Elapsed.TotalMilliseconds / rep;
+            recalculerNormalesChunk(chunkBase);
 
-        double burstSeul = mesurerNormalesJob(rep, false);
-        double jobs = mesurerNormalesJob(rep, true);
+        chrono.Stop();
+
+        double sequentiel =
+            chrono.Elapsed.TotalMilliseconds / rep;
+
+        double burstSeul =
+            mesurerNormalesJob(rep, false);
+
+        double jobs =
+            mesurerNormalesJob(rep, true);
 
         Debug.Log(
             "NORMALES (" + modeNormale + ", " + p_vertices.Length + " vertices)\n" +
-            "  C# sequentiel (ancien) : " + sequentiel.ToString("F2") + " ms\n" +
-            "  Job via Run()          : " + burstSeul.ToString("F2") + " ms  (Burst seul si Burst actif)\n" +
-            "  Job via Schedule()     : " + jobs.ToString("F2") + " ms  (Jobs ou Jobs+Burst selon le menu)");
+            "  C# sequentiel : " + sequentiel.ToString("F2") + " ms\n" +
+            "  Job via Run() : " + burstSeul.ToString("F2") + " ms\n" +
+            "  Job via Schedule() : " + jobs.ToString("F2") + " ms"
+        );
     }
+
     private void afficherResultatMesure(string nom, double tempsSequentiel, double tempsParallele)
     {
         if (tempsSequentiel < 0.0 || tempsParallele < 0.0)
@@ -2278,97 +2753,63 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (Keyboard.current == null)
             return;
 
-        // ------------------------------------------------------------
-        // F1 : aide
-        // ------------------------------------------------------------
-
         if (Keyboard.current.f1Key.wasPressedThisFrame)
-        {
-            p_afficherAide =
-                !p_afficherAide;
-        }
+            p_afficherAide = !p_afficherAide;
 
-        // ------------------------------------------------------------
-        // F2 : fonctions
-        // ------------------------------------------------------------
-
+        // F2 : changement de fonction
         if (Keyboard.current.f2Key.wasPressedThisFrame && !p_asyncEnCours)
         {
-            choixModeDeformation =
-                ChoixModeDeformation.Fonction;
-
-            typeFonction =
-                (TypeFonction)
-                (
-                    ((int)typeFonction + 1)
-                    % 3
-                );
-
-            appliquerDeformation_Fonction();
+            if (p_chunks.Count > 1)
+                Debug.LogWarning("Les fonctions sont reservees au terrain non etendu.");
+            else
+            {
+                choixModeDeformation = ChoixModeDeformation.Fonction;
+                typeFonction = (TypeFonction)(((int)typeFonction + 1) % 3);
+                appliquerDeformation_Fonction();
+            }
         }
 
-        // ------------------------------------------------------------
-        // F3 : HeightMaps
-        // ------------------------------------------------------------
-
+        // F3 : HeightMap classique
         if (Keyboard.current.f3Key.wasPressedThisFrame && !p_asyncEnCours)
         {
-            choixModeDeformation =
-                ChoixModeDeformation.Texture;
-
-            if (textures != null &&
-                textures.Count > 0)
+            if (p_chunks.Count > 1)
+                Debug.LogWarning("Les HeightMaps sont reservees au terrain non etendu.");
+            else
             {
-                numTexture =
-                    (numTexture + 1)
-                    % textures.Count;
-            }
+                choixModeDeformation = ChoixModeDeformation.Texture;
 
-            appliquerDeformation_Texture();
+                if (textures != null && textures.Count > 0)
+                    numTexture = (numTexture + 1) % textures.Count;
+
+                appliquerDeformation_Texture();
+            }
         }
 
-        // ------------------------------------------------------------
-        // F4 : HeightMaps en asynchrone (TP5)
-        // ------------------------------------------------------------
-
+        // F4 : HeightMap asynchrone
         if (Keyboard.current.f4Key.wasPressedThisFrame && !p_asyncEnCours)
         {
-            choixModeDeformation =
-                ChoixModeDeformation.Texture;
-
-            if (textures != null &&
-                textures.Count > 0)
+            if (p_chunks.Count > 1)
+                Debug.LogWarning("Le traitement asynchrone est reserve au terrain non etendu.");
+            else
             {
-                numTexture =
-                    (numTexture + 1)
-                    % textures.Count;
+                choixModeDeformation = ChoixModeDeformation.Texture;
+
+                if (textures != null && textures.Count > 0)
+                    numTexture = (numTexture + 1) % textures.Count;
+
+                lancerDeformationTextureAsync();
             }
-
-            lancerDeformationTextureAsync();
         }
 
-        // ------------------------------------------------------------
-        // F5 : mesurer les traitements avec Jobs / Burst
-        // ------------------------------------------------------------
-
+        // F5 : mesures des 4 traitements
         if (Keyboard.current.f5Key.wasPressedThisFrame && !p_asyncEnCours)
-        {
             mesurerPerformances4Jobs();
-        }
 
-        // ------------------------------------------------------------
-        // F6 : memoire + test de charge (TP5/TP6)
-        // ------------------------------------------------------------
-
+        // F6 : memoire + test de charge
         if (Keyboard.current.f6Key.wasPressedThisFrame && !p_asyncEnCours)
-        {
             mesurerLimitesMemoire();
-        }
 
-        // ------------------------------------------------------------
-        // F10 : normales
-        // ------------------------------------------------------------
-
+        // F10 : affichage des normales
         if (Keyboard.current.f10Key.wasPressedThisFrame)
         {
             p_modeAffichageNormales++;
@@ -2376,50 +2817,40 @@ public class CreationSimpleTerrain : MonoBehaviour
             if (p_modeAffichageNormales > 3)
                 p_modeAffichageNormales = 0;
 
-
-            p_tempsAffichageNormales =
-                DUREE_AFFICHAGE_NORMALES;
+            p_tempsAffichageNormales = DUREE_AFFICHAGE_NORMALES;
         }
 
-        // ------------------------------------------------------------
         // F12 : methode de calcul des normales
-        // ------------------------------------------------------------
-
         if (Keyboard.current.f12Key.wasPressedThisFrame && !p_asyncEnCours)
         {
-            modeNormale =
-                (ModeNormale)
-                (
-                    ((int)modeNormale + 1)
-                    % 3
-                );
+            modeNormale = (ModeNormale)(((int)modeNormale + 1) % 3);
 
             recalculerToutesLesNormales();
             appliquerMesh();
 
-            Debug.Log(
-                "Mode normale : "
-                + modeNormale
-            );
+            Debug.Log("Mode normale : " + modeNormale);
         }
-        // ------------------------------------------------------------
-        // EXERCICE 2 : Z = changer de distance
-        // ------------------------------------------------------------
+
+        // Z : changer de metrique de distance
         if (Keyboard.current.zKey.wasPressedThisFrame)
         {
-            distanceUtilisee =
-                (TypeDistance)(((int)distanceUtilisee + 1) % 4);
-
-            Debug.Log(
-                "Distance utilisee : " +
-                distanceUtilisee
-            );
+            distanceUtilisee = (TypeDistance)(((int)distanceUtilisee + 1) % 4);
+            Debug.Log("Distance utilisee : " + distanceUtilisee);
         }
-    }
 
-    // --------------------------------------------------------------------
-    // DOUBLE F11
-    // --------------------------------------------------------------------
+        // Fleches : extension du terrain
+        if (Keyboard.current.upArrowKey.wasPressedThisFrame)
+            etendreTerrain(Vector2Int.up);
+
+        if (Keyboard.current.downArrowKey.wasPressedThisFrame)
+            etendreTerrain(Vector2Int.down);
+
+        if (Keyboard.current.leftArrowKey.wasPressedThisFrame)
+            etendreTerrain(Vector2Int.left);
+
+        if (Keyboard.current.rightArrowKey.wasPressedThisFrame)
+            etendreTerrain(Vector2Int.right);
+    }
 
     private void gererDoubleF11()
     {
@@ -2714,6 +3145,9 @@ public class CreationSimpleTerrain : MonoBehaviour
             (resultat / nombre).normalized
         );
     }
+
+
+    private Vector3 calculerNormaleTriangle(int triangleIndex) => calculerNormaleTriangle(chunkBase, triangleIndex);
     // --------------------------------------------------------------------
     // NORMALE D'ORIENTATION
     // --------------------------------------------------------------------
@@ -2732,7 +3166,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         int triangleIndex =
             triangles[0];
 
-
+        
         Vector3 normale =
             calculerNormaleTriangle(
                 triangleIndex
@@ -2831,6 +3265,23 @@ public class CreationSimpleTerrain : MonoBehaviour
             GUILayout.Space(10);
             GUILayout.Label(status);
         }
+
+        // Afficher le nombre de chunks total et dimention du terrain
+        long totVertices = 0;
+        long totTriangles = 0;
+        long totMemory = 0;
+
+        foreach (Chunk chunk in p_chunks.Values)
+        {
+            totVertices += chunk.vertices.Length;
+            totTriangles += chunk.triangles.Length / 3;
+            totMemory += (chunk.vertices.Length * 12L + chunk.normals.Length * 12L + chunk.uv.Length * 8L + chunk.triangles.Length * 4L) / 1024L;
+        }
+        int width = gridMax.x - gridMin.x + 1;
+        int height = gridMax.y - gridMin.y + 1;
+        
+        GUILayout.Space(10);
+        GUILayout.Label($"Chunks : {p_chunks.Count}, Total Memory : {totMemory} Ko, Total Vertices : {totVertices}, Total Triangles : {totTriangles} (Dimensions : {width} x {height})");
 
         GUILayout.EndArea();
     }
@@ -3105,30 +3556,78 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         // Point de collision en espace local
-        Vector3 centreLocal = transform.InverseTransformPoint(pointMonde);
-
         float direction = elevation ? 1f : -1f;
         float forceMax = intensiteMaxDeformation * Time.deltaTime * 5f;
 
-        bool maillageModifie = false;
-
-        for (int i = 0; i < p_vertices.Length; i++)
+        List<Chunk> touches = chunkTouches(pointMonde);
+        
+        foreach (Chunk chunk in touches)
         {
-            float t = calculerDistanceNormalisee(p_vertices[i], centreLocal, out bool dansRayon);
+            Vector3 centreLocal = chunk.go.transform.InverseTransformPoint(pointMonde);
+            for (int i = 0; i < chunk.vertices.Length; i++)
+            {
+                float distanceNormalisee = calculerDistanceNormalisee(chunk.vertices[i], centreLocal, out bool dansRayon);
+                if (!dansRayon)
+                    continue;
+                chunk.vertices[i].y += direction * courbe.Evaluate(distanceNormalisee) * forceMax;
 
-            if (!dansRayon)
-                continue;
-
-            float force = courbe.Evaluate(t);
-
-            p_vertices[i].y += direction * force * forceMax;
-            maillageModifie = true;
+            }
         }
 
-        if (maillageModifie)
+        synchroniserJumeaux(touches);
+        foreach (Chunk chunk in touches)
         {
-            recalculerToutesLesNormales();
-            appliquerMesh();
+            recalculerNormalesChunk(chunk);
+        }
+
+        foreach (Chunk chunk in touches)
+        {
+            appliquerMeshChunk(chunk);
+        }
+    }
+
+
+    private void synchroniserJumeaux (List<Chunk> liste)
+    {
+        foreach (Chunk chunk in liste)
+        {
+            int last = chunk.vertices.Length;
+            for (int k = 0; k < chunk.res; k++)
+            {
+                synchroniserVertex(chunk, k, 0);
+                synchroniserVertex(chunk, k, last);
+                synchroniserVertex(chunk, 0, k);
+                synchroniserVertex(chunk, last, k);
+            }
+        }
+    }
+
+    private void synchroniserVertex(Chunk chunk, int index_x, int index_z)
+    {
+        trouverJumeaux(chunk, index_x, index_z);
+        if(p_membresTmp.Count == 0)
+            return;
+        
+        Chunk reference = chunk;
+        int iRef = index_z * chunk.res + index_x;
+        for (int k = 0; k < p_membresTmp.Count; k++)
+        {
+            Chunk jumeau = p_membresTmp[k];
+            if (jumeau.coord.y < reference.coord.y || (jumeau.coord.y == reference.coord.y && jumeau.coord.x < reference.coord.x))
+            {
+                reference = jumeau;
+                iRef = p_indicesTmp[k];
+            }
+            
+        }
+
+        float yRef = reference.vertices[iRef].y;
+        chunk.vertices[index_z * chunk.res + index_x].y = yRef;
+        for (int k = 0; k < p_membresTmp.Count; k++)
+        {
+            Chunk jumeau = p_membresTmp[k];
+            int iJum = p_indicesTmp[k];
+            jumeau.vertices[iJum].y = yRef;
         }
     }
 
