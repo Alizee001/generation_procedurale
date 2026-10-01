@@ -142,9 +142,9 @@ public struct NormalesVertexJob : IJobParallelFor
 {
     [ReadOnly] public NativeArray<Vector3> vertices;
     [ReadOnly] public NativeArray<int> triangles;
-    [ReadOnly] public NativeArray<int> debut;     
-    [ReadOnly] public NativeArray<int> liste;     
-    public int mode;                              
+    [ReadOnly] public NativeArray<int> debut;
+    [ReadOnly] public NativeArray<int> liste;
+    public int mode;
     [WriteOnly] public NativeArray<Vector3> normales;
 
     public void Execute(int index)
@@ -169,13 +169,13 @@ public struct NormalesVertexJob : IJobParallelFor
                 ? new Vector3(0f, 1f, 0f)
                 : n / longueur;
 
-            float poids = 1f;                               
+            float poids = 1f;
 
-            if (mode == 1)                                    
+            if (mode == 1)
             {
                 poids = longueur * 0.5f;
             }
-            else if (mode == 2)                               
+            else if (mode == 2)
             {
                 Vector3 a;
                 Vector3 b;
@@ -482,7 +482,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         public GameObject go;
         public MeshCollider collider;
         public int res;
-        public Mesh mesh;                       
+        public Mesh mesh;
         public Vector3[] vertices, normals;
         public Vector2[] uv;
         public int[] triangles;
@@ -491,10 +491,10 @@ public class CreationSimpleTerrain : MonoBehaviour
         public Vector3[] vertices1, vertices2, normals1, normals2;
         public int[] map1, map2;
     }
-    
+
     Dictionary<Vector2Int, Chunk> p_chunks = new Dictionary<Vector2Int, Chunk>();
-    Vector2Int gridMin =Vector2Int.zero;
-    Vector2Int gridMax =Vector2Int.zero;
+    Vector2Int gridMin = Vector2Int.zero;
+    Vector2Int gridMax = Vector2Int.zero;
     private Material p_materialBase;
     private readonly List<Chunk> p_membresTmp = new List<Chunk>();
     private readonly List<int> p_indicesTmp = new List<int>();
@@ -654,7 +654,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         return mr;
     }
 
-    private List<Chunk> chunkTouches (Vector3 pointMonde)
+    private List<Chunk> chunkTouches(Vector3 pointMonde)
     {
         List<Chunk> chunks = new List<Chunk>();
         float origine = CentrerPivot ? dimension * 0.5f : 0f;
@@ -662,8 +662,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         {
             float marg = rayonDeformation + 2f * dimension / (chunk.res - 1);
             Vector3 localPoint = chunk.go.transform.InverseTransformPoint(pointMonde);
-            if (localPoint.x >= -origine - marg && localPoint.x <= dimension - origine +marg &&
-                localPoint.z >= -origine - marg && localPoint.z <= dimension - origine +marg)
+            if (localPoint.x >= -origine - marg && localPoint.x <= dimension - origine + marg &&
+                localPoint.z >= -origine - marg && localPoint.z <= dimension - origine + marg)
             {
                 chunks.Add(chunk);
             }
@@ -694,12 +694,21 @@ public class CreationSimpleTerrain : MonoBehaviour
             chunk.go.AddComponent<MeshRenderer>().sharedMaterial = p_materialBase;
         }
 
-        bakerVoisins(chunk);
+        // On enregistre d’abord le chunk dans le dictionnaire.
+        // Cela permet à chunkBase / p_vertices de pointer correctement
+        // vers le chunk (0,0) lorsque l’on construit les buffers natifs.
         p_chunks[coord] = chunk;
+
+        bakerVoisins(chunk);
+
+        // Les buffers natifs utilisés par les jobs TP5 correspondent
+        // au chunk de référence (0,0), pas à chaque chunk du terrain.
+        if (coord == Vector2Int.zero)
+            bakerVoisinsNatif();
 
         // Les vertices frontières reprennent position ET normale de leurs jumeaux existants
         int last = chunk.res - 1;
-        for (int i =0; i < chunk.res; i++)
+        for (int i = 0; i < chunk.res; i++)
         {
             copierDepuisJumeaux(chunk, i, 0);
             copierDepuisJumeaux(chunk, i, last);
@@ -762,8 +771,8 @@ public class CreationSimpleTerrain : MonoBehaviour
                     continue;
                 if (!p_chunks.TryGetValue(new Vector2Int(chunk.coord.x + dx, chunk.coord.y + dz), out Chunk voisin))
                     continue;
-                 int voisinx = (dx == -1) ? last : (dx == 1) ? 0 : index_x;
-                 int voisinz = (dz == -1) ? last : (dz == 1) ? 0 : index_z;
+                int voisinx = (dx == -1) ? last : (dx == 1) ? 0 : index_x;
+                int voisinz = (dz == -1) ? last : (dz == 1) ? 0 : index_z;
 
                 p_membresTmp.Add(voisin);
                 p_indicesTmp.Add(voisinx * voisin.res + voisinz);
@@ -806,7 +815,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                         int indexVoisin = p_indicesTmp[k];
                         somme += sommeNormales(voisin, indexVoisin);
                     }
-                    
+
                 }
                 Vector3 normale = somme.sqrMagnitude < 0.000001f ? Vector3.up : somme.normalized;
                 chunk.normals[i] = normale;
@@ -902,7 +911,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     private void etendreTerrain(Vector2Int direction)
     {
         if (p_chunks.Count == 0)
-        return;
+            return;
 
         if (direction.x != 0)
         {
@@ -930,7 +939,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 gridMin.y = z;
         }
 
-            
+
     }
 
     private void appliquerMeshChunk(Chunk chunk)
@@ -1166,7 +1175,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         foreach (Chunk chunk in p_chunks.Values)
         {
             Material mats = new Material(p_materialBase);
-            mats.color = Color.HSVToRGB((n++ * 0.17f)%1f, 0.7f, 1f);
+            mats.color = Color.HSVToRGB((n++ * 0.17f) % 1f, 0.7f, 1f);
             temp.Add(mats);
             foreach (MeshRenderer mr in chunk.go.GetComponentsInChildren<MeshRenderer>())
             {
@@ -1283,8 +1292,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             chunk.trianglesParVertex[c].Add(i);
         }
 
-        // TP5 : version aplatie (natif) pour le job des normales.
-        bakerVoisinsNatif();
+        // Le voisinage natif du chunk de référence est construit dans creerChunk()
+        // après l’enregistrement du chunk dans p_chunks.
     }
 
     // TP6 (plus-value) : construction du voisinage par un IJob Burst lance avec Run().
@@ -1355,9 +1364,9 @@ public class CreationSimpleTerrain : MonoBehaviour
             {
                 chunk.vertices[i].y = 0f;
             }
-            
+
         }
-        
+
         recalculerToutesLesNormales();
         appliquerMesh();
     }
@@ -3166,7 +3175,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         int triangleIndex =
             triangles[0];
 
-        
+
         Vector3 normale =
             calculerNormaleTriangle(
                 triangleIndex
@@ -3279,7 +3288,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
         int width = gridMax.x - gridMin.x + 1;
         int height = gridMax.y - gridMin.y + 1;
-        
+
         GUILayout.Space(10);
         GUILayout.Label($"Chunks : {p_chunks.Count}, Total Memory : {totMemory} Ko, Total Vertices : {totVertices}, Total Triangles : {totTriangles} (Dimensions : {width} x {height})");
 
@@ -3560,7 +3569,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         float forceMax = intensiteMaxDeformation * Time.deltaTime * 5f;
 
         List<Chunk> touches = chunkTouches(pointMonde);
-        
+
         foreach (Chunk chunk in touches)
         {
             Vector3 centreLocal = chunk.go.transform.InverseTransformPoint(pointMonde);
@@ -3587,7 +3596,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     }
 
 
-    private void synchroniserJumeaux (List<Chunk> liste)
+    private void synchroniserJumeaux(List<Chunk> liste)
     {
         foreach (Chunk chunk in liste)
         {
@@ -3605,9 +3614,9 @@ public class CreationSimpleTerrain : MonoBehaviour
     private void synchroniserVertex(Chunk chunk, int index_x, int index_z)
     {
         trouverJumeaux(chunk, index_x, index_z);
-        if(p_membresTmp.Count == 0)
+        if (p_membresTmp.Count == 0)
             return;
-        
+
         Chunk reference = chunk;
         int iRef = index_z * chunk.res + index_x;
         for (int k = 0; k < p_membresTmp.Count; k++)
@@ -3618,7 +3627,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 reference = jumeau;
                 iRef = p_indicesTmp[k];
             }
-            
+
         }
 
         float yRef = reference.vertices[iRef].y;
