@@ -2765,34 +2765,31 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (Keyboard.current.f1Key.wasPressedThisFrame)
             p_afficherAide = !p_afficherAide;
 
-        // F2 : changement de fonction
-        if (Keyboard.current.f2Key.wasPressedThisFrame && !p_asyncEnCours)
+        // F2/F3 : fonctions / heightmaps
+        bool f2 = Keyboard.current.f2Key.wasPressedThisFrame;
+        bool f3 = Keyboard.current.f3Key.wasPressedThisFrame;
+
+        if ((f2 || f3) && p_chunks.Count > 1)
         {
-            if (p_chunks.Count > 1)
-                Debug.LogWarning("Les fonctions sont reservees au terrain non etendu.");
-            else
+            Debug.LogWarning("Fonctions / HeightMaps réservées au terrain non étendu.");
+        }
+        else
+        {
+            if (f2)
             {
                 choixModeDeformation = ChoixModeDeformation.Fonction;
                 typeFonction = (TypeFonction)(((int)typeFonction + 1) % 3);
                 appliquerDeformation_Fonction();
             }
-        }
-
-        // F3 : HeightMap classique
-        if (Keyboard.current.f3Key.wasPressedThisFrame && !p_asyncEnCours)
-        {
-            if (p_chunks.Count > 1)
-                Debug.LogWarning("Les HeightMaps sont reservees au terrain non etendu.");
-            else
+            if (f3)
             {
                 choixModeDeformation = ChoixModeDeformation.Texture;
-
                 if (textures != null && textures.Count > 0)
                     numTexture = (numTexture + 1) % textures.Count;
-
                 appliquerDeformation_Texture();
             }
         }
+        
 
         // F4 : HeightMap asynchrone
         if (Keyboard.current.f4Key.wasPressedThisFrame && !p_asyncEnCours)
@@ -2859,6 +2856,12 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         if (Keyboard.current.rightArrowKey.wasPressedThisFrame)
             etendreTerrain(Vector2Int.right);
+
+        // C : Surlugnage des chunks
+        if(Keyboard.current.cKey.wasPressedThisFrame)
+        {
+            StartCoroutine(surligneChunks());
+        }
     }
 
     private void gererDoubleF11()
@@ -3257,7 +3260,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Label("PARAMETRES LOD :");
 
         // Affichage si le LOD est actif ou pas
-        LODGroup lodGroup = GetComponent<LODGroup>();
+        LODGroup lodGroup = chunkBase != null ? chunkBase.go.GetComponent<LODGroup>() : null;
         if (lodGroup != null)
         {
             LOD[] lods = lodGroup.GetLODs();
