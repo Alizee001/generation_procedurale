@@ -253,22 +253,28 @@ public class CreationSimpleTerrain : MonoBehaviour
     {
         int resLOD0 = 1 << puissance2Resolution;
         int resLOD2 = 16;
-        int puissanceLOD1 = (puissance2Resolution - 4) / 2;
-        int resLOD1 = 1 << puissanceLOD1;
+        int resLOD1 = 1 << (4 + (puissance2Resolution - 4) / 2);
 
         // Création de la hiérarchie LODGroup
         LODGroup lodGroup = gameObject.AddComponent<LODGroup>();
         LOD[] lods = new LOD[3];
 
+        p_meshFilter = GetComponent<MeshFilter>();
+        p_meshCollider = GetComponent<MeshCollider>();
+
         // Création des 3 enfants MeshRenderer
-        Renderer[] renderer0 = new Renderer[] { creerEnfantsLOD("LOD_0", resLOD0, out meshLOD0, out vertices0, out normales0) };
-        Renderer[] renderer1 = new Renderer[] { creerEnfantsLOD("LOD_1", resLOD1, out meshLOD1, out vertices1, out normales1) };
-        Renderer[] renderer2 = new Renderer[] { creerEnfantsLOD("LOD_2", resLOD2, out meshLOD2, out vertices2, out normales2) };
+        Renderer[] renderer0 = new Renderer[] { creerEnfantsLOD("LOD_0", resLOD0, out meshLOD0, out vertices0, out normales0, out p_uv, out p_triangles) };
+        Renderer[] renderer1 = new Renderer[] { creerEnfantsLOD("LOD_1", resLOD1, out meshLOD1, out vertices1, out normales1, out _, out _) };
+        Renderer[] renderer2 = new Renderer[] { creerEnfantsLOD("LOD_2", resLOD2, out meshLOD2, out vertices2, out normales2, out _, out _) };
 
         // Références vers LOD0 pour le picking et le calcul
         p_mesh = meshLOD0;
         p_vertices = vertices0;
         p_normals = normales0;
+        resolution = (ushort)resLOD0;
+
+        p_meshCollider.sharedMesh = p_mesh;
+        bakerVoisins();
 
         // Ajustement des seuils de basculementde de distance
         lods[0] = new LOD(0.5f, renderer0);
@@ -286,7 +292,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     // CREATION DES ENFANTS DES LOD
     // --------------------------------------------------------------------
-    Renderer creerEnfantsLOD(string nom, int res, out Mesh mesh, out Vector3[] vertices, out Vector3[] norms)
+    Renderer creerEnfantsLOD(string nom, int res, out Mesh mesh, out Vector3[] vertices, out Vector3[] norms, out Vector2[] uvs, out int[] tris)
     {
         GameObject child = new GameObject(nom);
         child.transform.SetParent(this.transform, false);
@@ -300,13 +306,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             mr.sharedMaterial = mainRenderer.sharedMaterial;
 
         // Générer inline du maillage selon la résolution passé en paramètre
-        mesh = creerMeshGrille(res, out vertices, out norms, out Vector2[] uvs, out int[] triangles);
+        mesh = creerMeshGrille(res, out vertices, out norms, out uvs, out tris);
         mf.sharedMesh = mesh;
-
-        // Si c't le LOD0, affecter son maillage au MeshCollider principal
-        if (nom == "LOD_0" && p_meshCollider != null)
-            p_meshCollider.sharedMesh = mesh;
-
         return mr;
     }
 
@@ -315,16 +316,15 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     void calculerMapping(int resHaut, int resBasse, out int[] map)
     {
-        map = new int[resHaut * resBasse];
-        int pas = (resHaut - 1) / (resBasse - 1);
+        map = new int[resBasse * resBasse];
 
         int idx = 0;
         for (int z = 0; z < resBasse; z++)
         {
             for (int x = 0; x < resBasse; x++)
             {
-                int xHaut = pas * x;
-                int zHaut = pas * z;
+                int xHaut = Mathf.RoundToInt(x * (resHaut - 1) / (float)(resBasse - 1));
+                int zHaut = Mathf.RoundToInt(z * (resHaut - 1) / (float)(resBasse - 1));
                 map[idx++] = zHaut * resHaut + xHaut;
 
             }
@@ -355,7 +355,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         // Mise à jour du LOD2
         if(meshLOD2 != null && mapLOD2to0 != null)
         {
-            for (int i = 0; i < vertices1.Length; i++)
+            for (int i = 0; i < vertices2.Length; i++)
             {
                 int i0 = mapLOD2to0[i];
                 vertices2[i].y = vertices0[i0].y;
@@ -702,8 +702,12 @@ public class CreationSimpleTerrain : MonoBehaviour
         p_mesh.uv = p_uv;
 
         p_mesh.RecalculateBounds();
-
-        p_meshFilter.sharedMesh = p_mesh;
+        
+        if(puissance2Resolution < 6)
+        {
+            p_meshFilter.sharedMesh = p_mesh;
+        }
+        
 
         p_meshCollider.sharedMesh = null;
         p_meshCollider.sharedMesh = p_mesh;
