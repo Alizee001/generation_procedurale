@@ -586,9 +586,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         else
             orig = 0f;
 
-        for (int z = 0; z < res - 1; z++)
+        for (int z = 0; z < res; z++)
         {
-            for (int x = 0; x < res - 1; x++)
+            for (int x = 0; x < res; x++)
             {
                 int idx = z * res + x;
                 vertices[idx] = new Vector3(x * step - orig, 0f, z * step - orig);
@@ -1835,9 +1835,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 $"Mémoire approximative : {calculerMemoireMesh()} Ko"
                 );
         }
-
-        GUILayout.Space(10);
-
+       
         GUILayout.Label(
             "PARAMETRES"
             );
@@ -1858,8 +1856,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             $"Distance : {distanceUtilisee}"
             );
 
-        GUILayout.Space(10);
-
         GUILayout.Label(
             "INTERACTIONS"
             );
@@ -1869,11 +1865,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            "F2 : Fonction suivante"
-            );
-
-        GUILayout.Label(
-            "F3 : HeightMap suivante"
+            "F2 : Fonction suivante    F3 : HeightMap suivante"
             );
 
         GUILayout.Label(
@@ -1892,29 +1884,13 @@ public class CreationSimpleTerrain : MonoBehaviour
             "Z : Changer de distance (Exercice 2)"
             );
 
-        GUILayout.Space(5);
-
         GUILayout.Label(
-            "Clic gauche : Placer une colline"
+            "ZQSD : Déplacer la caméra      E / A : Monter / Descendre"
             );
 
         GUILayout.Label(
-            "ZQSD : Déplacer la caméra"
+            "O/K/L/M : Tourner la caméra        R : Faire tourner le terrain"
             );
-
-        GUILayout.Label(
-            "E / A : Monter / Descendre"
-            );
-
-        GUILayout.Label(
-            "O/K/L/M : Tourner la caméra"
-            );
-
-        GUILayout.Label(
-            "R : Faire tourner le terrain"
-            );
-
-        GUILayout.Space(10);
 
         GUILayout.Label(
             "SCULPTURE INTERACTIVE (EXERCICE 1)"
@@ -1932,8 +1908,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             $"Rayon : {rayonDeformation}"
             );
 
-        GUILayout.Space(10);
-
         GUILayout.Label(
             "INTERACTIONS SCULPTURE"
             );
@@ -1947,10 +1921,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
 
         GUILayout.Label(
-            "Touche Espace : Prévisualiser la zone du pattern (Debug)"
-            );
-
-        GUILayout.Label(
             "Molette + SHIFT : Varier l'intensité"
             );
 
@@ -1961,14 +1931,13 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Label(
             "Molette + ALT : Changer de pattern"
             );
-        GUILayout.Space(10);
 
         GUILayout.Label(
             "EXERCICE 2 - DISTANCES"
             );
 
         GUILayout.Label(
-            "W : Euclidienne / Euclidienne� / Manhattan / Chebyshev"
+            "W : Euclidienne / Euclidienne carree / Manhattan / Chebyshev"
             );
 
         GUILayout.Label(
@@ -2269,233 +2238,52 @@ public class CreationSimpleTerrain : MonoBehaviour
     // PATTERN DE DEFORMATION
     // --------------------------------------------------------------------
 
-    private void appliquerPatternDeformation(
-    Vector3 pointMonde,
-    bool elevation)
+    private void appliquerPatternDeformation(Vector3 pointMonde, bool elevation)
     {
         if (p_vertices == null)
             return;
 
-
-        if (patternsDeformation == null ||
-            patternsDeformation.Length == 0)
+        if (patternsDeformation == null || patternsDeformation.Length == 0)
             return;
 
-
-        AnimationCurve courbe =
-            patternsDeformation[p_indexPatternCourant];
-
+        AnimationCurve courbe = patternsDeformation[p_indexPatternCourant];
 
         if (courbe == null)
         {
-            Debug.LogWarning(
-                "Le pattern "
-                + p_indexPatternCourant
-                + " est vide."
-            );
-
+            Debug.LogWarning("Le pattern " + p_indexPatternCourant + " est vide.");
             return;
         }
 
-
-        // ------------------------------------------------------------
         // Point de collision en espace local
-        // ------------------------------------------------------------
+        Vector3 centreLocal = transform.InverseTransformPoint(pointMonde);
 
-        Vector3 centreLocal =
-            transform.InverseTransformPoint(
-                pointMonde
-            );
-
-
-        float rayon =
-            Mathf.Max(
-                0.01f,
-                rayonDeformation
-            );
-
-
-        // ------------------------------------------------------------
-        // Direction de la d�formation
-        // ------------------------------------------------------------
-
-        float direction =
-            elevation
-            ? 1f
-            : -1f;
-
-
-        float forceMax =
-            intensiteMaxDeformation
-            * Time.deltaTime
-            * 5f;
-
+        float direction = elevation ? 1f : -1f;
+        float forceMax = intensiteMaxDeformation * Time.deltaTime * 5f;
 
         bool maillageModifie = false;
 
-
-        // ------------------------------------------------------------
-        // Recherche des vertices dans le voisinage
-        // ------------------------------------------------------------
-
-        for (int i = 0;
-             i < p_vertices.Length;
-             i++)
+        for (int i = 0; i < p_vertices.Length; i++)
         {
-            bool dansRayon;
-            float t = calculerDistanceNormalisee(p_vertices[i], centreLocal, out dansRayon);
+            float t = calculerDistanceNormalisee(p_vertices[i], centreLocal, out bool dansRayon);
+
             if (!dansRayon)
                 continue;
 
             float force = courbe.Evaluate(t);
 
-            if (!dansRayon)
-                continue;
-
-
-            // --------------------------------------------------------
-            // Application du pattern
-            // --------------------------------------------------------
-
-            float deformation =
-                direction
-                * force
-                * forceMax;
-
-
-            p_vertices[i].y +=
-                deformation;
-
-
+            p_vertices[i].y += direction * force * forceMax;
             maillageModifie = true;
         }
-
-
-        // ------------------------------------------------------------
-        // Mise � jour du terrain
-        // ------------------------------------------------------------
 
         if (maillageModifie)
         {
             recalculerToutesLesNormales();
-
             appliquerMesh();
         }
-    }
-
-    // ------------------------------------------------------------
-    // Point de collision en espace local
-    // ------------------------------------------------------------
-
-    Vector3 centreLocal =
-        transform.InverseTransformPoint(
-            pointMonde
-        );
-
-
-    float rayon =
-        Mathf.Max(
-            0.01f,
-            rayonDeformation
-        );
-
-
-    float rayonCarre =
-        rayon * rayon;
-
-
-    // ------------------------------------------------------------
-    // Direction de la déformation
-    // ------------------------------------------------------------
-
-    float direction =
-        elevation
-        ? 1f
-        : -1f;
-
-
-    float forceMax =
-        intensiteMaxDeformation
-        * Time.deltaTime
-        * 5f;
-
-
-    bool maillageModifie = false;
-
-
-    // ------------------------------------------------------------
-    // Recherche des vertices dans le voisinage
-    // ------------------------------------------------------------
-
-    for (int i = 0;
-         i < p_vertices.Length;
-         i++)
-    {
-        float dx =
-            p_vertices[i].x
-            - centreLocal.x;
-
-
-        float dz =
-            p_vertices[i].z
-            - centreLocal.z;
-
-
-        float distanceCarree =
-            dx * dx
-            + dz * dz;
-
-
-        // Vertex en dehors du cercle
-        if (distanceCarree > rayonCarre)
-            continue;
-
-
-        // --------------------------------------------------------
-        // Distance normalisée [0 ; 1]
-        // --------------------------------------------------------
-
-        float distance =
-            Mathf.Sqrt(distanceCarree);
-
-
-        float t =
-            distance / rayon;
-
-
-        // --------------------------------------------------------
-        // Application du pattern
-        // --------------------------------------------------------
-
-        float force =
-            courbe.Evaluate(t);
-
-
-        float deformation =
-            direction
-            * force
-            * forceMax;
-
-
-        p_vertices[i].y +=
-            deformation;
-
-
-        maillageModifie = true;
-    }
-
-
-    // ------------------------------------------------------------
-    // Mise à jour du terrain
-    // ------------------------------------------------------------
-
-    if (maillageModifie)
-    {
-        recalculerToutesLesNormales();
-
-        appliquerMesh();
-    }
-}    // --------------------------------------------------------------------
+    }    
+    
+    
+    // --------------------------------------------------------------------
     // PREVISUALISATION DE LA DEFORMATION
     // --------------------------------------------------------------------
 
