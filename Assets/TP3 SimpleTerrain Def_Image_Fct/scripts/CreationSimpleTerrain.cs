@@ -2,23 +2,303 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
+
 
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
+
+// ================================================================
+// TP5 -> TP4 : Jobs + Burst pour accelerer les traitements de generation
+// ================================================================
+
+[BurstCompile(CompileSynchronously = true)]
+public struct SinusoideTerrainJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices;
+    public float frequence;
+    public float hauteur;
+
+    public void Execute(int index)
+    {
+        Vector3 v = vertices[index];
+        v.y = Mathf.Sin(v.x * frequence * 2f)
+            * Mathf.Sin(v.z * frequence * 2f)
+            * hauteur;
+        vertices[index] = v;
+    }
+}
+
+[BurstCompile(CompileSynchronously = true)]
+public struct CollineTerrainJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices;
+    public float centreX;
+    public float centreZ;
+    public float sigma;
+    public float hauteur;
+
+    public void Execute(int index)
+    {
+        Vector3 v = vertices[index];
+        float dx = v.x - centreX;
+        float dz = v.z - centreZ;
+        float distanceCarree = dx * dx + dz * dz;
+        float facteur = Mathf.Exp(-distanceCarree / (2f * sigma * sigma));
+        v.y = hauteur * facteur;
+        vertices[index] = v;
+    }
+}
+public struct PerlinTerrainJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices;
+    public float echelle;
+    public float seed;
+    public float hauteur;
+
+    public void Execute(int index)
+    {
+        Vector3 v = vertices[index];
+        float x = v.x * echelle + seed;
+        float z = v.z * echelle + seed;
+        float bruit = Mathf.PerlinNoise(x, z);
+        v.y = (bruit - 0.5f) * 2f * hauteur;
+        vertices[index] = v;
+    }
+}
+
+// Version Burst : bruit de Unity.Mathematics (autre bruit, valeurs ~[-1 ; 1]).
+[BurstCompile(CompileSynchronously = true)]
+public struct PerlinTerrainBurstJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices;
+    public float echelle;
+    public float seed;
+    public float hauteur;
+
+    public void Execute(int index)
+    {
+        Vector3 v = vertices[index];
+        Unity.Mathematics.float2 p = new Unity.Mathematics.float2(
+            v.x * echelle + seed,
+            v.z * echelle + seed);
+        float bruit = Unity.Mathematics.noise.cnoise(p);
+        v.y = bruit * hauteur;
+        vertices[index] = v;
+    }
+}
+
+[BurstCompile(CompileSynchronously = true)]
+public struct TextureTerrainJob : IJobParallelFor
+{
+    [ReadOnly]
+    public NativeArray<Color> pixels;
+    public NativeArray<Vector3> vertices;
+    public int largeurImage;
+    public int hauteurImage;
+    public int resolution;
+    public float hauteurMax;
+    public void Execute(int index)
+    {
+        int i = index % resolution;
+        int j = index / resolution;
+
+        float u = (float)i / (resolution - 1);
+        float v = (float)j / (resolution - 1);
+
+        float px = u * (largeurImage - 1);
+        float py = v * (hauteurImage - 1);
+
+        int x0 = (int)px;
+        int y0 = (int)py;
+        int x1 = Mathf.Min(x0 + 1, largeurImage - 1);
+        int y1 = Mathf.Min(y0 + 1, hauteurImage - 1);
+
+        float tx = px - x0;
+        float ty = py - y0;
+
+        Color c00 = pixels[y0 * largeurImage + x0];
+        Color c10 = pixels[y0 * largeurImage + x1];
+        Color c01 = pixels[y1 * largeurImage + x0];
+        Color c11 = pixels[y1 * largeurImage + x1];
+
+        Color cx0 = Color.Lerp(c00, c10, tx);
+        Color cx1 = Color.Lerp(c01, c11, tx);
+        Color couleur = Color.Lerp(cx0, cx1, ty);
+
+        Vector3 vertex = vertices[index];
+        vertex.y = couleur.grayscale * hauteurMax;
+        vertices[index] = vertex;
+    }
+}
+
+[BurstCompile(CompileSynchronously = true)]
+public struct NormalesVertexJob : IJobParallelFor
+{
+    [ReadOnly] public NativeArray<Vector3> vertices;
+    [ReadOnly] public NativeArray<int> triangles;
+    [ReadOnly] public NativeArray<int> debut;     
+    [ReadOnly] public NativeArray<int> liste;     
+    public int mode;                              
+    [WriteOnly] public NativeArray<Vector3> normales;
+
+    public void Execute(int index)
+    {
+        Vector3 somme = new Vector3(0f, 0f, 0f);
+
+        for (int k = debut[index]; k < debut[index + 1]; k++)
+        {
+            int t = liste[k];
+            int i0 = triangles[t];
+            int i1 = triangles[t + 1];
+            int i2 = triangles[t + 2];
+
+            Vector3 v0 = vertices[i0];
+            Vector3 v1 = vertices[i1];
+            Vector3 v2 = vertices[i2];
+
+            Vector3 n = Vector3.Cross(v1 - v0, v2 - v0);
+            float carre = n.sqrMagnitude;
+            float longueur = Mathf.Sqrt(carre);
+            Vector3 nUnitaire = carre < 0.000001f
+                ? new Vector3(0f, 1f, 0f)
+                : n / longueur;
+
+            float poids = 1f;                               
+
+            if (mode == 1)                                    
+            {
+                poids = longueur * 0.5f;
+            }
+            else if (mode == 2)                               
+            {
+                Vector3 a;
+                Vector3 b;
+                if (index == i0) { a = v1 - v0; b = v2 - v0; }
+                else if (index == i1) { a = v0 - v1; b = v2 - v1; }
+                else { a = v0 - v2; b = v1 - v2; }
+
+                poids = (a.sqrMagnitude < 0.000001f || b.sqrMagnitude < 0.000001f)
+                    ? 0f
+                    : Vector3.Angle(a, b);
+            }
+
+            somme += nUnitaire * poids;
+        }
+
+        if (somme.sqrMagnitude < 0.000001f)
+            somme = new Vector3(0f, 1f, 0f);
+        else
+            somme = somme.normalized;
+
+        normales[index] = somme;
+    }
+}
+
+// ================================================================
+// TP5 : jobs complementaires
+// ================================================================
+
+// "Hello World" du TP (section 5) : remise a plat y = constante.
+[BurstCompile(CompileSynchronously = true)]
+public struct ReinitialiserTerrainJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices_job;
+    public float hauteurCst_job;
+
+    public void Execute(int index)
+    {
+        Vector3 vertex = vertices_job[index];
+        vertex.y = hauteurCst_job;
+        vertices_job[index] = vertex;
+    }
+}
+
+[BurstCompile(CompileSynchronously = true)]
+public struct GrilleSyntheseJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices;
+    public int resolution;
+    public float pas;
+
+    public void Execute(int index)
+    {
+        vertices[index] = new Vector3((index / resolution) * pas,
+                                      0f,
+                                      (index % resolution) * pas);
+    }
+}
+
+[BurstCompile(CompileSynchronously = true)]
+public struct VoisinsCsrJob : IJob
+{
+    [ReadOnly] public NativeArray<int> triangles;
+    public int nbVertices;
+    public NativeArray<int> debut;    // taille nbVertices + 1, a zero au depart
+    public NativeArray<int> liste;    // taille triangles.Length
+
+    public void Execute()
+    {
+        // 1) nombre de triangles par vertex
+        for (int i = 0; i < triangles.Length; i++)
+            debut[triangles[i] + 1]++;
+
+        // 2) cumul -> debut de la plage de chaque vertex
+        for (int v = 0; v < nbVertices; v++)
+            debut[v + 1] += debut[v];
+
+        // 3) remplissage
+        NativeArray<int> curseur = new NativeArray<int>(nbVertices, Allocator.Temp);
+        for (int i = 0; i < triangles.Length; i += 3)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                int v = triangles[i + k];
+                liste[debut[v] + curseur[v]] = i;
+                curseur[v]++;
+            }
+        }
+        curseur.Dispose();
+    }
+}
+
+// Sonde : indique si le code d'un job est bien compile par Burst.
+// [BurstDiscard] : l'appel est supprime par Burst, donc "manage" reste false
+// seulement quand Burst est actif.
+[BurstCompile(CompileSynchronously = true)]
+public struct SondeBurstJob : IJob
+{
+    public NativeArray<int> resultat;   // [0] = 1 si Burst, 0 si C# manage
+
+    public void Execute()
+    {
+        bool manage = false;
+        MarquerManage(ref manage);
+        resultat[0] = manage ? 0 : 1;
+    }
+
+    [BurstDiscard]
+    private static void MarquerManage(ref bool manage)
+    {
+        manage = true;
+    }
+}
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
 [RequireComponent(typeof(MeshCollider))]
 public class CreationSimpleTerrain : MonoBehaviour
 {
-    [Header("Paramètres du terrain")]
+    [Header("Parametres du terrain")]
 
     [Range(1, 2000)]
     public float dimension = 100;
 
     [Range(1, 12)]
-    [Tooltip("La résolution vaut 2^n")]
+    [Tooltip("La resolution vaut 2^n")]
     public int puissance2Resolution = 4;
 
     public bool CentrerPivot = true;
@@ -33,7 +313,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         Texture
     }
 
-    [Header("Mode de génération")]
+    [Header("Mode de generation")]
     public ChoixModeDeformation choixModeDeformation;
 
 
@@ -60,15 +340,13 @@ public class CreationSimpleTerrain : MonoBehaviour
     [Header("Exercice 2 - Parametre de distance")]
     public TypeDistance distanceUtilisee = TypeDistance.Euclidienne;
 
-
     [Header("HeightMaps")]
 
     public int numTexture;
 
     public List<Texture2D> textures;
 
-
-    [Header("Paramètres des fonctions")]
+    [Header("Parametres des fonctions")]
 
     public float hauteurSinusoide = 5f;
 
@@ -82,7 +360,13 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public float hauteurTexture = 20f;
 
-    // Création des mesh et vertices pour le LOD
+    [Header("TP5 - Jobs / Burst")]
+    [Tooltip("Normales calculees par job (sinon ancienne boucle C#)")]
+    public bool utiliserJobNormales = true;
+    [Tooltip("Perlin : false = Mathf.PerlinNoise (Jobs seul), true = cnoise (Burst)")]
+    public bool perlinBurst = false;
+
+    // Creation des mesh et vertices pour le LOD
     private Mesh meshLOD0, meshLOD1, meshLOD2;
 
     private Vector3[] vertices0, vertices1, vertices2;
@@ -94,7 +378,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private int[] mapLOD2to0;
 
-
     //[Header("Normales")]
     public enum ModeNormale
     {
@@ -105,8 +388,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public ModeNormale modeNormale = ModeNormale.Basique;
 
-
-    [Header("Caméra")]
+    [Header("Camera")]
 
     public float vitesseCamera = 15f;
 
@@ -114,20 +396,17 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public float vitesseRotationTerrain = 50f;
 
-    // --- NOUVEAUX PARAMÈTRES POUR L'EXERCICE 1 ---
+    // --- NOUVEAUX PARAMETRES POUR L'EXERCICE 1 ---
     [Header("Sculpture Interactive (Exercice 1)")]
-    [Tooltip("Ajoutez des courbes allant de X=0 à X=1, et Y=0 à Y=1")]
+    [Tooltip("Ajoutez des courbes allant de X=0 a X=1, et Y=0 a Y=1")]
     public AnimationCurve[] patternsDeformation;
     public float rayonDeformation = 15f;
     public float intensiteMaxDeformation = 10f;
     private int p_indexPatternCourant = 0;
-    private float p_cooldownScroll = 0f; // Evite les changement de pattern trop rapides lors du scroll de la souris
-
 
     // --------------------------------------------------------------------
-    // Données internes
+    // Donnees internes
     // --------------------------------------------------------------------
-
     private uint p_dimVertices;
     private uint p_dimTriangles;
 
@@ -146,8 +425,14 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private float p_dimInterVertices;
 
-    // Liste des triangles attachés à chaque vertex.
+    // Liste des triangles attaches a chaque vertex.
     private List<int>[] p_trianglesParVertex;
+
+    // Voisinage aplati en memoire native (format CSR) pour le job des normales.
+    private NativeArray<int> p_trianglesNative;
+    private NativeArray<int> p_debutVoisinsNative;
+    private NativeArray<int> p_listeVoisinsNative;
+    private bool p_voisinsNativesPrets = false;
 
     // Pour le picking des collines.
     private Vector3 p_dernierPointPicking;
@@ -178,6 +463,16 @@ public class CreationSimpleTerrain : MonoBehaviour
     private float p_distanceMaxAffichee = 0f;
     private int p_nombreVoisins = 0;
 
+    // TP5 : traitement asynchrone (F4)
+    private bool p_asyncEnCours = false;
+    private JobHandle p_handleAsync;
+    private NativeArray<Vector3> p_asyncVertices;
+    private NativeArray<Vector3> p_asyncNormales;
+    private NativeArray<Color> p_asyncPixels;
+    private float p_asyncDebut;
+
+    // TP5 : FPS lisses
+    private float p_fps;
 
     // --------------------------------------------------------------------
     // RESET
@@ -197,11 +492,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         gameObject.layer = LayerMask.NameToLayer("L_PickingTerrain");
     }
 
-
     // --------------------------------------------------------------------
     // AWAKE
     // --------------------------------------------------------------------
-
     void Awake()
     {
         p_cam = Camera.main;
@@ -223,8 +516,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         p_seedPerlin = Random.Range(0f, 10000f);
     }
-
-
     // --------------------------------------------------------------------
     // START
     // --------------------------------------------------------------------
@@ -239,11 +530,17 @@ public class CreationSimpleTerrain : MonoBehaviour
         {
             creerLeMeshTerrain();
         }
+    }
 
+    // --------------------------------------------------------------------
+    // LIBERATION DE LA MEMOIRE NATIVE
+    // --------------------------------------------------------------------
 
-
-        // Terrain initial plat.
-        //remettreTerrainPlat();
+    void OnDestroy()
+    {
+        p_handleAsync.Complete();
+        libererAsync();
+        libererVoisinsNatifs();
     }
 
     // --------------------------------------------------------------------
@@ -255,19 +552,19 @@ public class CreationSimpleTerrain : MonoBehaviour
         int resLOD2 = 16;
         int resLOD1 = 1 << (4 + (puissance2Resolution - 4) / 2);
 
-        // Création de la hiérarchie LODGroup
+        // Creation de la hierarchie LODGroup
         LODGroup lodGroup = gameObject.AddComponent<LODGroup>();
         LOD[] lods = new LOD[3];
 
         p_meshFilter = GetComponent<MeshFilter>();
         p_meshCollider = GetComponent<MeshCollider>();
 
-        // Création des 3 enfants MeshRenderer
+        // Creation des 3 enfants MeshRenderer
         Renderer[] renderer0 = new Renderer[] { creerEnfantsLOD("LOD_0", resLOD0, out meshLOD0, out vertices0, out normales0, out p_uv, out p_triangles) };
         Renderer[] renderer1 = new Renderer[] { creerEnfantsLOD("LOD_1", resLOD1, out meshLOD1, out vertices1, out normales1, out _, out _) };
         Renderer[] renderer2 = new Renderer[] { creerEnfantsLOD("LOD_2", resLOD2, out meshLOD2, out vertices2, out normales2, out _, out _) };
 
-        // Références vers LOD0 pour le picking et le calcul
+        // References vers LOD0 pour le picking et le calcul
         p_mesh = meshLOD0;
         p_vertices = vertices0;
         p_normals = normales0;
@@ -305,7 +602,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (mainRenderer != null)
             mr.sharedMaterial = mainRenderer.sharedMaterial;
 
-        // Générer inline du maillage selon la résolution passé en paramètre
+        // Generer inline du maillage selon la resolution passe en parametre
         mesh = creerMeshGrille(res, out vertices, out norms, out uvs, out tris);
         mf.sharedMesh = mesh;
         return mr;
@@ -340,9 +637,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (puissance2Resolution < 6)
             return;
 
-
-        // Mise à jour du LOD1
-        if(meshLOD1 != null && mapLOD1to0 != null)
+        // Mise a jour du LOD1
+        if (meshLOD1 != null && mapLOD1to0 != null)
         {
             for (int i = 0; i < vertices1.Length; i++)
             {
@@ -352,8 +648,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             meshLOD1.vertices = vertices1;
             meshLOD1.RecalculateNormals();
         }
-        // Mise à jour du LOD2
-        if(meshLOD2 != null && mapLOD2to0 != null)
+        // Mise a jour du LOD2
+        if (meshLOD2 != null && mapLOD2to0 != null)
         {
             for (int i = 0; i < vertices2.Length; i++)
             {
@@ -365,11 +661,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-
     // --------------------------------------------------------------------
     // CREATION DU MAILLAGE
     // --------------------------------------------------------------------
-
     private void creerLeMeshTerrain()
     {
         p_meshFilter = GetComponent<MeshFilter>();
@@ -381,9 +675,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (p_meshCollider == null)
             p_meshCollider = gameObject.AddComponent<MeshCollider>();
 
-
         // ------------------------------------------------------------
-        // Résolution
+        // Resolution
         // ------------------------------------------------------------
 
         int resolutionInt = 1 << puissance2Resolution;
@@ -396,7 +689,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         resolutionInt = resolution;
 
-
         // ------------------------------------------------------------
         // Nombre de vertices
         // ------------------------------------------------------------
@@ -408,17 +700,14 @@ public class CreationSimpleTerrain : MonoBehaviour
             (resolutionInt - 1) *
             (resolutionInt - 1);
 
-
         if (nombreVertices > int.MaxValue)
         {
             Debug.LogError("Le maillage contient trop de vertices.");
             return;
         }
 
-
         p_dimVertices = (uint)nombreVertices;
         p_dimTriangles = (uint)nombreTriangles;
-
 
         // ------------------------------------------------------------
         // Espacement
@@ -427,126 +716,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         p_dimInterVertices =
             dimension / (resolutionInt - 1);
 
-
         // ------------------------------------------------------------
-        // Création des tableaux
+        // Creation du Mesh (vertices, uv, normales, triangles)
         // ------------------------------------------------------------
-
-        //p_vertices = new Vector3[nombreVertices];
-        //p_normals = new Vector3[nombreVertices];
-        //p_uv = new Vector2[nombreVertices];
-
-        //p_triangles = new int[nombreTriangles * 3];
-
-
-        // ------------------------------------------------------------
-        // Création des vertices
-        // ------------------------------------------------------------
-
-        //float origine = CentrerPivot
-        //    ? dimension * 0.5f
-        //    : 0f;
-
-
-        //for (int z = 0; z < resolutionInt; z++)
-        //{
-        //    for (int x = 0; x < resolutionInt; x++)
-        //    {
-        //        int index = z * resolutionInt + x;
-
-        //        float px = x * p_dimInterVertices - origine;
-        //        float pz = z * p_dimInterVertices - origine;
-
-        //        p_vertices[index] =
-        //            new Vector3(px, 0f, pz);
-
-
-        //        // UV entre 0 et 1.
-        //        float u =
-        //            (float)x / (resolutionInt - 1);
-
-        //        float v =
-        //            (float)z / (resolutionInt - 1);
-
-        //        p_uv[index] =
-        //            new Vector2(u, v);
-
-        //        p_normals[index] =
-        //            Vector3.up;
-        //    }
-        //}
-
-
-        // ------------------------------------------------------------
-        // Création des triangles
-        //
-        // 3 -- 2
-        // |  / |
-        // 0 -- 1
-        //
-        // ------------------------------------------------------------
-
-        //int triangleIndex = 0;
-
-        //for (int z = 0; z < resolutionInt - 1; z++)
-        //{
-        //    for (int x = 0; x < resolutionInt - 1; x++)
-        //    {
-        //        int v0 = z * resolutionInt + x;
-        //        int v1 = v0 + 1;
-        //        int v2 = v0 + resolutionInt;
-        //        int v3 = v2 + 1;
-
-
-        //        // Triangle 1
-        //        p_triangles[triangleIndex++] = v0;
-        //        p_triangles[triangleIndex++] = v2;
-        //        p_triangles[triangleIndex++] = v1;
-
-
-        //        // Triangle 2
-        //        p_triangles[triangleIndex++] = v1;
-        //        p_triangles[triangleIndex++] = v2;
-        //        p_triangles[triangleIndex++] = v3;
-        //    }
-        //}
-
-
-        // ------------------------------------------------------------
-        // Création du Mesh
-        // ------------------------------------------------------------
-
-        //if (p_mesh != null)
-        //{
-        //    Destroy(p_mesh);
-        //}
-
-        //p_mesh = new Mesh();
-
-        //p_mesh.name = "TerrainProcedural";
-
-
-        // ------------------------------------------------------------
-        // IMPORTANT :
-        // Plus de 65535 vertices => indices 32 bits.
-        // ------------------------------------------------------------
-
-        //if (nombreVertices > 65535)
-        //{
-        //    p_mesh.indexFormat = IndexFormat.UInt32;
-        //}
-        //else
-        //{
-        //    p_mesh.indexFormat = IndexFormat.UInt16;
-        //}
-
-
-        //p_mesh.vertices = p_vertices;
-        //p_mesh.uv = p_uv;
-        //p_mesh.triangles = p_triangles;
-        //p_mesh.normals = p_normals;
-
-        //p_mesh.RecalculateBounds();
 
         p_mesh = creerMeshGrille(resolutionInt, out p_vertices, out p_normals, out p_uv, out p_triangles);
 
@@ -564,7 +736,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
         Debug.Log(
-            "Terrain créé : " +
+            "Terrain cree : " +
             p_dimVertices +
             " vertices, " +
             p_dimTriangles +
@@ -651,7 +823,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
 
-        // Chaque triangle est associé à ses 3 vertices.
+        // Chaque triangle est associe a ses 3 vertices.
         for (int i = 0; i < p_triangles.Length; i += 3)
         {
             int a = p_triangles[i];
@@ -663,6 +835,64 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_trianglesParVertex[b].Add(i);
             p_trianglesParVertex[c].Add(i);
         }
+
+        // TP5 : version aplatie (natif) pour le job des normales.
+        bakerVoisinsNatif();
+    }
+
+    // TP6 (plus-value) : construction du voisinage par un IJob Burst lance avec Run().
+    private void bakerVoisinsNatif()
+    {
+        libererVoisinsNatifs();
+
+        int nbV = p_vertices.Length;
+
+        p_trianglesNative = new NativeArray<int>(p_triangles, Allocator.Persistent);
+        p_debutVoisinsNative = new NativeArray<int>(nbV + 1, Allocator.Persistent);       // zeros
+        p_listeVoisinsNative = new NativeArray<int>(p_triangles.Length, Allocator.Persistent);
+
+        VoisinsCsrJob job = new VoisinsCsrJob
+        {
+            triangles = p_trianglesNative,
+            nbVertices = nbV,
+            debut = p_debutVoisinsNative,
+            liste = p_listeVoisinsNative
+        };
+        job.Run();
+
+        p_voisinsNativesPrets = true;
+    }
+
+    // Version C# manage d'origine, conservee uniquement pour la comparaison (F5).
+    private void construireVoisinsCSharp(int nbV, out int[] debut, out int[] liste)
+    {
+        debut = new int[nbV + 1];
+        liste = new int[p_triangles.Length];
+
+        for (int i = 0; i < p_triangles.Length; i++)
+            debut[p_triangles[i] + 1]++;
+
+        for (int v = 0; v < nbV; v++)
+            debut[v + 1] += debut[v];
+
+        int[] curseur = new int[nbV];
+        for (int i = 0; i < p_triangles.Length; i += 3)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                int v = p_triangles[i + k];
+                liste[debut[v] + curseur[v]] = i;
+                curseur[v]++;
+            }
+        }
+    }
+
+    private void libererVoisinsNatifs()
+    {
+        if (p_trianglesNative.IsCreated) p_trianglesNative.Dispose();
+        if (p_debutVoisinsNative.IsCreated) p_debutVoisinsNative.Dispose();
+        if (p_listeVoisinsNative.IsCreated) p_listeVoisinsNative.Dispose();
+        p_voisinsNativesPrets = false;
     }
 
 
@@ -680,13 +910,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         {
             p_vertices[i].y = 0f;
         }
-
-
         recalculerToutesLesNormales();
-
         appliquerMesh();
     }
-
 
     // --------------------------------------------------------------------
     // APPLICATION DU MESH
@@ -699,15 +925,15 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         p_mesh.vertices = p_vertices;
         p_mesh.normals = p_normals;
-        p_mesh.uv = p_uv;
+        // (p_mesh.uv = p_uv retire : les UV ne changent jamais apres la creation)
 
         p_mesh.RecalculateBounds();
-        
-        if(puissance2Resolution < 6)
+
+        if (puissance2Resolution < 6)
         {
             p_meshFilter.sharedMesh = p_mesh;
         }
-        
+
 
         p_meshCollider.sharedMesh = null;
         p_meshCollider.sharedMesh = p_mesh;
@@ -715,7 +941,6 @@ public class CreationSimpleTerrain : MonoBehaviour
         // Propagation des modification aux sous maillages LOD1 et LOD2
         propagerLOD();
     }
-
 
     // --------------------------------------------------------------------
     // DEFORMATION PAR FONCTION
@@ -725,11 +950,6 @@ public class CreationSimpleTerrain : MonoBehaviour
     {
         if (p_vertices == null)
             return;
-
-
-        // Nouvelle génération.
-        remettreTerrainPlat();
-
 
         switch (typeFonction)
         {
@@ -742,7 +962,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
             case TypeFonction.Collines:
 
-                // Si aucun picking n'a été effectué,
+                // Si aucun picking n'a ete effectue,
                 // on place une colline au centre.
                 Vector3 centre;
 
@@ -773,12 +993,9 @@ public class CreationSimpleTerrain : MonoBehaviour
                 break;
         }
 
-
         recalculerToutesLesNormales();
-
         appliquerMesh();
     }
-
 
     // --------------------------------------------------------------------
     // SINUSOIDE
@@ -786,28 +1003,24 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private void appliquerSinusoide()
     {
-        float frequence =
-            2f * Mathf.PI / dimension;
+        if (p_vertices == null || p_vertices.Length == 0)
+            return;
 
+        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        for (int i = 0; i < p_vertices.Length; i++)
+        SinusoideTerrainJob job = new SinusoideTerrainJob
         {
-            float x = p_vertices[i].x;
-            float z = p_vertices[i].z;
+            vertices = verticesNative,
+            frequence = 2f * Mathf.PI / dimension,
+            hauteur = hauteurSinusoide
+        };
 
+        JobHandle handle = job.Schedule(verticesNative.Length, 64);
+        handle.Complete();
 
-            float hauteur =
-                Mathf.Sin(x * frequence * 2f)
-                *
-                Mathf.Sin(z * frequence * 2f)
-                *
-                hauteurSinusoide;
-
-
-            p_vertices[i].y = hauteur;
-        }
+        verticesNative.CopyTo(p_vertices);
+        verticesNative.Dispose();
     }
-
 
     // --------------------------------------------------------------------
     // COLLINE GAUSSIENNE
@@ -817,175 +1030,231 @@ public class CreationSimpleTerrain : MonoBehaviour
         float centreX,
         float centreZ)
     {
-        float sigma = Mathf.Max(
-            0.01f,
-            largeurColline
-        );
+        if (p_vertices == null || p_vertices.Length == 0)
+            return;
 
+        float sigma = Mathf.Max(0.01f, largeurColline);
 
-        for (int i = 0; i < p_vertices.Length; i++)
+        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+        CollineTerrainJob job = new CollineTerrainJob
         {
-            float dx =
-                p_vertices[i].x - centreX;
+            vertices = verticesNative,
+            centreX = centreX,
+            centreZ = centreZ,
+            sigma = sigma,
+            hauteur = hauteurColline
+        };
 
-            float dz =
-                p_vertices[i].z - centreZ;
+        JobHandle handle = job.Schedule(verticesNative.Length, 64);
+        handle.Complete();
 
-
-            float distanceCarree =
-                dx * dx + dz * dz;
-
-
-            // Fonction gaussienne :
-            //
-            // exp(-(x²+z²)/(2*sigma²))
-            //
-            float facteur =
-                Mathf.Exp(
-                    -distanceCarree /
-                    (2f * sigma * sigma)
-                );
-
-
-            p_vertices[i].y =
-                hauteurColline *
-                facteur;
-        }
+        verticesNative.CopyTo(p_vertices);
+        verticesNative.Dispose();
     }
-
 
     // --------------------------------------------------------------------
     // PERLIN NOISE
     // --------------------------------------------------------------------
-
     private void appliquerPerlin()
     {
-        for (int i = 0; i < p_vertices.Length; i++)
+        if (p_vertices == null || p_vertices.Length == 0)
+            return;
+
+        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+        if (perlinBurst)
         {
-            float x =
-                p_vertices[i].x *
-                echellePerlin +
-                p_seedPerlin;
+            PerlinTerrainBurstJob jobBurst = new PerlinTerrainBurstJob
+            {
+                vertices = verticesNative,
+                echelle = echellePerlin,
+                seed = p_seedPerlin,
+                hauteur = hauteurPerlin
+            };
 
-            float z =
-                p_vertices[i].z *
-                echellePerlin +
-                p_seedPerlin;
-
-
-            float bruit =
-                Mathf.PerlinNoise(x, z);
-
-
-            // Perlin retourne [0 ; 1].
-            // On le centre autour de 0.
-            float hauteur =
-                (bruit - 0.5f)
-                *
-                2f
-                *
-                hauteurPerlin;
-
-
-            p_vertices[i].y =
-                hauteur;
+            jobBurst.Schedule(verticesNative.Length, 64).Complete();
         }
-    }
+        else
+        {
+            PerlinTerrainJob job = new PerlinTerrainJob
+            {
+                vertices = verticesNative,
+                echelle = echellePerlin,
+                seed = p_seedPerlin,
+                hauteur = hauteurPerlin
+            };
 
+            JobHandle handle = job.Schedule(verticesNative.Length, 64);
+            handle.Complete();
+        }
+
+        verticesNative.CopyTo(p_vertices);
+        verticesNative.Dispose();
+    }
 
     // --------------------------------------------------------------------
     // DEFORMATION PAR HEIGHTMAP
     // --------------------------------------------------------------------
-
     private void appliquerDeformation_Texture()
     {
         if (p_vertices == null)
             return;
 
-
-        if (textures == null ||
-            textures.Count == 0)
+        if (textures == null || textures.Count == 0)
         {
-            Debug.LogWarning(
-                "Aucune HeightMap n'est renseignée."
-            );
-
+            Debug.LogWarning("Aucune HeightMap n'est renseignee.");
             return;
         }
 
-
-        numTexture =
-            Mathf.Clamp(
-                numTexture,
-                0,
-                textures.Count - 1
-            );
-
-
-        Texture2D texture =
-            textures[numTexture];
-
+        numTexture = Mathf.Clamp(numTexture, 0, textures.Count - 1);
+        Texture2D texture = textures[numTexture];
 
         if (texture == null)
         {
-            Debug.LogWarning(
-                "La HeightMap sélectionnée est vide."
-            );
-
+            Debug.LogWarning("La HeightMap selectionnee est vide.");
             return;
         }
 
-
-        remettreTerrainPlat();
-
-
-        for (int i = 0; i < p_vertices.Length; i++)
+        Color[] pixels;
+        try
         {
-            Vector2 uv = p_uv[i];
-
-
-            Color couleur;
-
-            try
-            {
-                couleur =
-                    texture.GetPixelBilinear(
-                        uv.x,
-                        uv.y
-                    );
-            }
-            catch
-            {
-                Debug.LogError(
-                    "Impossible de lire la HeightMap. " +
-                    "Vérifie que Read/Write est activé " +
-                    "dans les propriétés de la texture."
-                );
-
-                return;
-            }
-
-
-            // Conversion en niveau de gris.
-            float gris =
-                couleur.grayscale;
-
-
-            p_vertices[i].y =
-                gris * hauteurTexture;
+            pixels = texture.GetPixels();
+        }
+        catch
+        {
+            Debug.LogError("Impossible de lire la HeightMap. Active Read/Write dans les proprietes de la texture.");
+            return;
         }
 
+        NativeArray<Color> pixelsNative = new NativeArray<Color>(pixels, Allocator.TempJob);
+        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+        TextureTerrainJob job = new TextureTerrainJob
+        {
+            pixels = pixelsNative,
+            vertices = verticesNative,
+            largeurImage = texture.width,
+            hauteurImage = texture.height,
+            resolution = resolution,
+            hauteurMax = hauteurTexture
+        };
+
+        JobHandle handle = job.Schedule(verticesNative.Length, 16);
+        handle.Complete();
+
+        verticesNative.CopyTo(p_vertices);
+
+        verticesNative.Dispose();
+        pixelsNative.Dispose();
 
         recalculerToutesLesNormales();
-
         appliquerMesh();
     }
 
+    // --------------------------------------------------------------------
+    // TP5 : DEFORMATION PAR HEIGHTMAP EN ASYNCHRONE (F4)
+    // --------------------------------------------------------------------
+
+    private void lancerDeformationTextureAsync()
+    {
+        if (p_asyncEnCours || p_vertices == null || !p_voisinsNativesPrets)
+            return;
+
+        if (textures == null || textures.Count == 0)
+        {
+            Debug.LogWarning("Aucune HeightMap n'est renseignee.");
+            return;
+        }
+
+        numTexture = Mathf.Clamp(numTexture, 0, textures.Count - 1);
+        Texture2D texture = textures[numTexture];
+
+        if (texture == null)
+            return;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        Color[] pixels;
+        try
+        {
+            pixels = texture.GetPixels();
+        }
+        catch
+        {
+            Debug.LogError("Impossible de lire la HeightMap. Active Read/Write.");
+            return;
+        }
+
+        p_asyncPixels = new NativeArray<Color>(pixels, Allocator.Persistent);
+        p_asyncVertices = new NativeArray<Vector3>(p_vertices, Allocator.Persistent);
+        p_asyncNormales = new NativeArray<Vector3>(p_vertices.Length, Allocator.Persistent);
+
+        TextureTerrainJob jobTexture = new TextureTerrainJob
+        {
+            pixels = p_asyncPixels,
+            vertices = p_asyncVertices,
+            largeurImage = texture.width,
+            hauteurImage = texture.height,
+            resolution = resolution,
+            hauteurMax = hauteurTexture
+        };
+
+        JobHandle h1 = jobTexture.Schedule(p_asyncVertices.Length, 64);
+
+        NormalesVertexJob jobNormales = new NormalesVertexJob
+        {
+            vertices = p_asyncVertices,
+            triangles = p_trianglesNative,
+            debut = p_debutVoisinsNative,
+            liste = p_listeVoisinsNative,
+            mode = (int)modeNormale,
+            normales = p_asyncNormales
+        };
+
+        // dependance : les normales attendent la fin du job texture
+        p_handleAsync = jobNormales.Schedule(p_asyncVertices.Length, 64, h1);
+        JobHandle.ScheduleBatchedJobs();
+
+        p_asyncDebut = Time.realtimeSinceStartup;
+        p_asyncEnCours = true;
+
+        chrono.Stop();
+        Debug.Log("Async lance : main thread bloque " +
+                  chrono.Elapsed.TotalMilliseconds.ToString("F2") + " ms");
+    }
+    private void gererJobAsync()
+    {
+        if (!p_asyncEnCours || !p_handleAsync.IsCompleted)
+            return;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        p_handleAsync.Complete();                 // instantane : le job est deja fini
+        p_asyncVertices.CopyTo(p_vertices);
+        p_asyncNormales.CopyTo(p_normals);
+        libererAsync();
+        p_asyncEnCours = false;
+
+        appliquerMesh();                          // upload mesh + collider (main thread)
+
+        chrono.Stop();
+        Debug.Log("Async termine : " +
+                  ((Time.realtimeSinceStartup - p_asyncDebut) * 1000f).ToString("F0") +
+                  " ms de bout en bout (sur plusieurs frames), " +
+                  chrono.Elapsed.TotalMilliseconds.ToString("F2") +
+                  " ms bloquants pour la recuperation");
+    }
+    private void libererAsync()
+    {
+        if (p_asyncVertices.IsCreated) p_asyncVertices.Dispose();
+        if (p_asyncNormales.IsCreated) p_asyncNormales.Dispose();
+        if (p_asyncPixels.IsCreated) p_asyncPixels.Dispose();
+    }
 
     // --------------------------------------------------------------------
     // NORMALE D'UN TRIANGLE
     // --------------------------------------------------------------------
-
     private Vector3 calculerNormaleTriangle(
         int triangleIndex)
     {
@@ -998,18 +1267,15 @@ public class CreationSimpleTerrain : MonoBehaviour
         int i2 =
             p_triangles[triangleIndex + 2];
 
-
         Vector3 v0 = p_vertices[i0];
         Vector3 v1 = p_vertices[i1];
         Vector3 v2 = p_vertices[i2];
-
 
         Vector3 V01 =
             v1 - v0;
 
         Vector3 V02 =
             v2 - v0;
-
 
         Vector3 normale =
             Vector3.Cross(V01, V02);
@@ -1022,11 +1288,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         return normale.normalized;
     }
 
-
     // --------------------------------------------------------------------
     // SURFACE DU TRIANGLE
     // --------------------------------------------------------------------
-
     private float calculerSurfaceTriangle(
         int triangleIndex)
     {
@@ -1039,24 +1303,19 @@ public class CreationSimpleTerrain : MonoBehaviour
         int i2 =
             p_triangles[triangleIndex + 2];
 
-
         Vector3 v0 = p_vertices[i0];
         Vector3 v1 = p_vertices[i1];
         Vector3 v2 = p_vertices[i2];
 
-
         Vector3 a = v1 - v0;
         Vector3 b = v2 - v0;
-
 
         return Vector3.Cross(a, b).magnitude * 0.5f;
     }
 
-
     // --------------------------------------------------------------------
     // ANGLE DU TRIANGLE AU NIVEAU DU VERTEX
     // --------------------------------------------------------------------
-
     private float calculerAngleAuVertex(
         int triangleIndex,
         int vertex)
@@ -1070,10 +1329,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         int i2 =
             p_triangles[triangleIndex + 2];
 
-
         int autre1;
         int autre2;
-
 
         if (vertex == i0)
         {
@@ -1091,7 +1348,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             autre2 = i1;
         }
 
-
         Vector3 a =
             p_vertices[autre1]
             -
@@ -1102,20 +1358,16 @@ public class CreationSimpleTerrain : MonoBehaviour
             -
             p_vertices[vertex];
 
-
         if (a.sqrMagnitude < 0.000001f ||
             b.sqrMagnitude < 0.000001f)
         {
             return 0f;
         }
 
-
         return Vector3.Angle(a, b);
     }
-
-
     // --------------------------------------------------------------------
-    // CALCUL DE LA NORMALE D'UN VERTEX
+    // CALCUL DE LA NORMALE D'UN VERTEX (version C# sequentielle d'origine)
     // --------------------------------------------------------------------
 
     private void calculerNormaleVertex(
@@ -1124,15 +1376,12 @@ public class CreationSimpleTerrain : MonoBehaviour
         int vertex =
             (int)num_Vertex;
 
-
         if (vertex < 0 ||
             vertex >= p_vertices.Length)
             return;
 
-
         List<int> triangles =
             p_trianglesParVertex[vertex];
-
 
         if (triangles == null ||
             triangles.Count == 0)
@@ -1142,12 +1391,8 @@ public class CreationSimpleTerrain : MonoBehaviour
 
             return;
         }
-
-
         Vector3 normaleFinale =
             Vector3.zero;
-
-
         // ------------------------------------------------------------
         // A - Moyenne simple
         // ------------------------------------------------------------
@@ -1162,10 +1407,8 @@ public class CreationSimpleTerrain : MonoBehaviour
                     );
             }
         }
-
-
         // ------------------------------------------------------------
-        // B - Moyenne pondérée par la surface
+        // B - Moyenne ponderee par la surface
         // ------------------------------------------------------------
 
         else if (modeNormale == ModeNormale.Surface)
@@ -1187,9 +1430,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             }
         }
 
-
         // ------------------------------------------------------------
-        // C - Moyenne pondérée par l'angle
+        // C - Moyenne ponderee par l'angle
         // ------------------------------------------------------------
 
         else if (modeNormale == ModeNormale.Angle)
@@ -1226,9 +1468,8 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-
     // --------------------------------------------------------------------
-    // RECALCUL DE TOUTES LES NORMALES
+    // RECALCUL DE TOUTES LES NORMALES (job + Burst, repli sequentiel)
     // --------------------------------------------------------------------
 
     private void recalculerToutesLesNormales()
@@ -1237,16 +1478,39 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_trianglesParVertex == null)
             return;
 
-
-        for (uint i = 0;
-             i < p_vertices.Length;
-             i++)
+        // Repli : ancien code sequentiel
+        if (!utiliserJobNormales || !p_voisinsNativesPrets)
         {
-            calculerNormaleVertex(i);
+            for (uint i = 0; i < p_vertices.Length; i++)
+            {
+                calculerNormaleVertex(i);
+            }
+            return;
         }
+
+        NativeArray<Vector3> verticesNative =
+            new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+        NativeArray<Vector3> normalesNative =
+            new NativeArray<Vector3>(p_vertices.Length, Allocator.TempJob,
+                                     NativeArrayOptions.UninitializedMemory);
+
+        NormalesVertexJob job = new NormalesVertexJob
+        {
+            vertices = verticesNative,
+            triangles = p_trianglesNative,
+            debut = p_debutVoisinsNative,
+            liste = p_listeVoisinsNative,
+            mode = (int)modeNormale,
+            normales = normalesNative
+        };
+
+        job.Schedule(p_vertices.Length, 64).Complete();
+
+        normalesNative.CopyTo(p_normals);
+
+        verticesNative.Dispose();
+        normalesNative.Dispose();
     }
-
-
     // --------------------------------------------------------------------
     // PICKING TERRAIN
     // --------------------------------------------------------------------
@@ -1256,24 +1520,19 @@ public class CreationSimpleTerrain : MonoBehaviour
     {
         hit = new RaycastHit();
 
-
         if (p_cam == null)
             return false;
-
 
         if (Mouse.current == null)
             return false;
 
-
         Vector2 positionSouris =
             Mouse.current.position.ReadValue();
-
 
         Ray rayon =
             p_cam.ScreenPointToRay(
                 positionSouris
             );
-
 
         return Physics.Raycast(
             rayon,
@@ -1283,6 +1542,716 @@ public class CreationSimpleTerrain : MonoBehaviour
         );
     }
 
+    // --------------------------------------------------------------------
+    // MESURE DES PERFORMANCES DES 4 JOBS + NORMALES
+    // --------------------------------------------------------------------
+
+    private const int repetitionsMesure = 100;
+    private const int lotMesure = 64;
+
+    private double mesurerSinusoideSequentiel()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+        float frequence = 2f * Mathf.PI / dimension;
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            Vector3[] verticesTest = (Vector3[])p_vertices.Clone();
+
+            for (int index = 0; index < verticesTest.Length; index++)
+            {
+                Vector3 v = verticesTest[index];
+                v.y = Mathf.Sin(v.x * frequence * 2f)
+                    * Mathf.Sin(v.z * frequence * 2f)
+                    * hauteurSinusoide;
+                verticesTest[index] = v;
+            }
+        }
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+
+    private double mesurerSinusoideJob()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+        float frequence = 2f * Mathf.PI / dimension;
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            SinusoideTerrainJob job = new SinusoideTerrainJob
+            {
+                vertices = verticesNative,
+                frequence = frequence,
+                hauteur = hauteurSinusoide
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);   // recopie retour mesuree aussi
+            verticesNative.Dispose();
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+    private double mesurerCollineSequentiel()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        float centreX = 0f;
+        float centreZ = 0f;
+        float sigma = Mathf.Max(0.01f, largeurColline);
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            Vector3[] verticesTest = (Vector3[])p_vertices.Clone();
+
+            for (int index = 0; index < verticesTest.Length; index++)
+            {
+                Vector3 v = verticesTest[index];
+                float dx = v.x - centreX;
+                float dz = v.z - centreZ;
+                float distanceCarree = dx * dx + dz * dz;
+                float facteur = Mathf.Exp(-distanceCarree / (2f * sigma * sigma));
+                v.y = hauteurColline * facteur;
+                verticesTest[index] = v;
+            }
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+
+    private double mesurerCollineJob()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        float centreX = 0f;
+        float centreZ = 0f;
+        float sigma = Mathf.Max(0.01f, largeurColline);
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            CollineTerrainJob job = new CollineTerrainJob
+            {
+                vertices = verticesNative,
+                centreX = centreX,
+                centreZ = centreZ,
+                sigma = sigma,
+                hauteur = hauteurColline
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);
+            verticesNative.Dispose();
+        }
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+    private double mesurerPerlinSequentiel()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        float seed = p_seedPerlin;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            Vector3[] verticesTest = (Vector3[])p_vertices.Clone();
+
+            for (int index = 0; index < verticesTest.Length; index++)
+            {
+                Vector3 v = verticesTest[index];
+                float x = v.x * echellePerlin + seed;
+                float z = v.z * echellePerlin + seed;
+                float bruit = Mathf.PerlinNoise(x, z);
+                v.y = (bruit - 0.5f) * 2f * hauteurPerlin;
+                verticesTest[index] = v;
+            }
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+    private double mesurerPerlinJob()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        float seed = p_seedPerlin;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            PerlinTerrainJob job = new PerlinTerrainJob
+            {
+                vertices = verticesNative,
+                echelle = echellePerlin,
+                seed = seed,
+                hauteur = hauteurPerlin
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);
+            verticesNative.Dispose();
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+    private double mesurerPerlinJobBurst()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        float seed = p_seedPerlin;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            PerlinTerrainBurstJob job = new PerlinTerrainBurstJob
+            {
+                vertices = verticesNative,
+                echelle = echellePerlin,
+                seed = seed,
+                hauteur = hauteurPerlin
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);
+            verticesNative.Dispose();
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+    private double mesurerTextureSequentiel()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        if (textures == null || textures.Count == 0 || textures[numTexture] == null)
+            return -1.0;
+
+        Texture2D texture = textures[numTexture];
+        Color[] pixels;
+
+        try
+        {
+            pixels = texture.GetPixels();
+        }
+        catch
+        {
+            UnityEngine.Debug.LogError(
+                "Impossible de mesurer la HeightMap : active Read/Write dans les proprietes de la texture.");
+            return -1.0;
+        }
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            Vector3[] verticesTest = (Vector3[])p_vertices.Clone();
+
+            for (int index = 0; index < verticesTest.Length; index++)
+            {
+                int i = index % resolution;
+                int j = index / resolution;
+
+                float u = (float)i / (resolution - 1);
+                float v = (float)j / (resolution - 1);
+
+                float px = u * (texture.width - 1);
+                float py = v * (texture.height - 1);
+
+                int x0 = (int)px;
+                int y0 = (int)py;
+                int x1 = Mathf.Min(x0 + 1, texture.width - 1);
+                int y1 = Mathf.Min(y0 + 1, texture.height - 1);
+
+                float tx = px - x0;
+                float ty = py - y0;
+
+                Color c00 = pixels[y0 * texture.width + x0];
+                Color c10 = pixels[y0 * texture.width + x1];
+                Color c01 = pixels[y1 * texture.width + x0];
+                Color c11 = pixels[y1 * texture.width + x1];
+
+                Color cx0 = Color.Lerp(c00, c10, tx);
+                Color cx1 = Color.Lerp(c01, c11, tx);
+                Color couleur = Color.Lerp(cx0, cx1, ty);
+
+                Vector3 vertex = verticesTest[index];
+                vertex.y = couleur.grayscale * hauteurTexture;
+                verticesTest[index] = vertex;
+            }
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+    private double mesurerTextureJob()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        if (textures == null || textures.Count == 0 || textures[numTexture] == null)
+            return -1.0;
+
+        Texture2D texture = textures[numTexture];
+        Color[] pixels;
+
+        try
+        {
+            pixels = texture.GetPixels();
+        }
+        catch
+        {
+            UnityEngine.Debug.LogError(
+                "Impossible de mesurer la HeightMap : active Read/Write dans les proprietes de la texture.");
+            return -1.0;
+        }
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Color> pixelsNative =
+                new NativeArray<Color>(pixels, Allocator.TempJob);
+
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            TextureTerrainJob job = new TextureTerrainJob
+            {
+                pixels = pixelsNative,
+                vertices = verticesNative,
+                largeurImage = texture.width,
+                hauteurImage = texture.height,
+                resolution = resolution,
+                hauteurMax = hauteurTexture
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);
+            verticesNative.Dispose();
+            pixelsNative.Dispose();
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+    // Normales : parallele = Schedule (multithread), sinon Run (main thread).
+    // Avec Burst actif, Run() isole l'effet "Burst seul".
+    private double mesurerNormalesJob(int repetitions, bool parallele)
+    {
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int r = 0; r < repetitions; r++)
+        {
+            NativeArray<Vector3> vN = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+            NativeArray<Vector3> nN = new NativeArray<Vector3>(
+                p_vertices.Length, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+
+            NormalesVertexJob job = new NormalesVertexJob
+            {
+                vertices = vN,
+                triangles = p_trianglesNative,
+                debut = p_debutVoisinsNative,
+                liste = p_listeVoisinsNative,
+                mode = (int)modeNormale,
+                normales = nN
+            };
+
+            if (parallele)
+                job.Schedule(p_vertices.Length, lotMesure).Complete();
+            else
+                job.Run(p_vertices.Length);
+
+            nN.CopyTo(p_normals);   // recopie retour mesuree aussi
+            vN.Dispose();
+            nN.Dispose();
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitions;
+    }
+    private void mesurerNormales()
+    {
+        if (!p_voisinsNativesPrets)
+        {
+            Debug.LogWarning("Voisins natifs non prets.");
+            return;
+        }
+
+        const int rep = 10;   // l'ancienne boucle est lente : peu de repetitions
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+        for (int r = 0; r < rep; r++)
+        {
+            for (uint i = 0; i < p_vertices.Length; i++)
+                calculerNormaleVertex(i);
+        }
+        double sequentiel = chrono.Elapsed.TotalMilliseconds / rep;
+
+        double burstSeul = mesurerNormalesJob(rep, false);
+        double jobs = mesurerNormalesJob(rep, true);
+
+        Debug.Log(
+            "NORMALES (" + modeNormale + ", " + p_vertices.Length + " vertices)\n" +
+            "  C# sequentiel (ancien) : " + sequentiel.ToString("F2") + " ms\n" +
+            "  Job via Run()          : " + burstSeul.ToString("F2") + " ms  (Burst seul si Burst actif)\n" +
+            "  Job via Schedule()     : " + jobs.ToString("F2") + " ms  (Jobs ou Jobs+Burst selon le menu)");
+    }
+    private void afficherResultatMesure(string nom, double tempsSequentiel, double tempsParallele)
+    {
+        if (tempsSequentiel < 0.0 || tempsParallele < 0.0)
+        {
+            UnityEngine.Debug.Log(nom + " : mesure impossible.");
+            return;
+        }
+
+        double gain = tempsParallele > 0.0
+            ? tempsSequentiel / tempsParallele
+            : 0.0;
+
+        UnityEngine.Debug.Log(
+            nom + "\n" +
+            "  Sequentiel : " + tempsSequentiel.ToString("F3") + " ms / repetition\n" +
+            "  Parallele  : " + tempsParallele.ToString("F3") + " ms / repetition\n" +
+            "  Gain       : " + gain.ToString("F2") + " x");
+    }
+
+    // --------------------------------------------------------------------
+    // TP5/TP6 : MESURES COMPLEMENTAIRES
+    // --------------------------------------------------------------------
+
+    private bool burstEstActif()
+    {
+        NativeArray<int> r = new NativeArray<int>(1, Allocator.TempJob);
+        SondeBurstJob sonde = new SondeBurstJob { resultat = r };
+        sonde.Run();
+        bool actif = r[0] == 1;
+        r.Dispose();
+        return actif;
+    }
+
+    private string libelleModeBurst()
+    {
+        return burstEstActif() ? "Jobs + Burst (Burst ACTIF)" : "Jobs seul (Burst INACTIF)";
+    }
+
+    // Section 5 du TP : "Hello World" (y = constante). Gain attendu : aucun.
+    private void mesurerReinitialisation()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return;
+
+        int n = p_vertices.Length;
+        Vector3[] cible = new Vector3[n];
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            Vector3[] test = (Vector3[])p_vertices.Clone();
+            for (int i = 0; i < test.Length; i++)
+                test[i].y = 0f;
+        }
+        double sequentiel = chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+
+        chrono.Restart();
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            ReinitialiserTerrainJob job = new ReinitialiserTerrainJob
+            {
+                vertices_job = verticesNative,
+                hauteurCst_job = 0f
+            };
+            job.Schedule(verticesNative.Length, lotMesure).Complete();
+
+            verticesNative.CopyTo(cible);     // on ne modifie pas le terrain
+            verticesNative.Dispose();
+        }
+        double parallele = chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+
+        afficherResultatMesure("HELLO WORLD : remise a plat y=0 (traitement trop leger)", sequentiel, parallele);
+    }
+    private void mesurerInfluenceLot()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return;
+
+        const int repetitionsLot = 50;
+        int[] lots = { 8, 16, 32, 64, 128, 256, 1024, 4096 };
+        float frequence = 2f * Mathf.PI / dimension;
+
+        string rapport = "INFLUENCE DU LOT - SINUSOIDE (" + p_vertices.Length + " vertices, " +
+                         libelleModeBurst() + ", " + repetitionsLot + " repetitions)\n";
+
+        for (int l = 0; l < lots.Length; l++)
+        {
+            System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+            for (int rep = 0; rep < repetitionsLot; rep++)
+            {
+                NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+                SinusoideTerrainJob job = new SinusoideTerrainJob
+                {
+                    vertices = verticesNative,
+                    frequence = frequence,
+                    hauteur = hauteurSinusoide
+                };
+                job.Schedule(verticesNative.Length, lots[l]).Complete();
+
+                verticesNative.Dispose();
+            }
+
+            rapport += "  lot = " + lots[l].ToString().PadLeft(5) + " : " +
+                       (chrono.Elapsed.TotalMilliseconds / repetitionsLot).ToString("F3") + " ms\n";
+        }
+
+        Debug.Log(rapport);
+    }
+    private void mesurerBakerVoisins()
+    {
+        if (p_triangles == null || p_vertices == null)
+            return;
+
+        const int rep = 5;
+        int nbV = p_vertices.Length;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+        for (int r = 0; r < rep; r++)
+        {
+            int[] d;
+            int[] l;
+            construireVoisinsCSharp(nbV, out d, out l);
+        }
+        double csharp = chrono.Elapsed.TotalMilliseconds / rep;
+
+        chrono.Restart();
+        for (int r = 0; r < rep; r++)
+        {
+            NativeArray<int> tri = new NativeArray<int>(p_triangles, Allocator.TempJob);
+            NativeArray<int> debut = new NativeArray<int>(nbV + 1, Allocator.TempJob);
+            NativeArray<int> liste = new NativeArray<int>(p_triangles.Length, Allocator.TempJob);
+
+            VoisinsCsrJob job = new VoisinsCsrJob
+            {
+                triangles = tri,
+                nbVertices = nbV,
+                debut = debut,
+                liste = liste
+            };
+            job.Run();
+
+            tri.Dispose();
+            debut.Dispose();
+            liste.Dispose();
+        }
+        double burst = chrono.Elapsed.TotalMilliseconds / rep;
+
+        Debug.Log(
+            "VOISINAGE CSR (code non parallelise, " + nbV + " vertices)\n" +
+            "  C# manage          : " + csharp.ToString("F2") + " ms\n" +
+            "  IJob.Run() (" + (burstEstActif() ? "Burst" : "C# via job, Burst inactif") + ") : " +
+            burst.ToString("F2") + " ms\n" +
+            "  Gain               : " + (burst > 0.0 ? (csharp / burst).ToString("F2") : "?") + " x");
+    }
+
+    // --------------------------------------------------------------------
+    // F6 : LIMITES MEMOIRE / TEST DE CHARGE
+    // --------------------------------------------------------------------
+    private void mesurerLimitesMemoire()
+    {
+        const float MO = 1024f * 1024f;
+
+        long managee = System.GC.GetTotalMemory(false);
+        long alloueUnity = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong();
+        long reserveUnity = UnityEngine.Profiling.Profiler.GetTotalReservedMemoryLong();
+
+        int nbV = p_vertices != null ? p_vertices.Length : 0;
+        int nbIdx = p_triangles != null ? p_triangles.Length : 0;
+
+        // estimation des tableaux du terrain : vertices+normales (12 o), uv (8 o), indices (4 o)
+        // + 3 tableaux natifs du voisinage (4 o par entier)
+        long tableauxManages = (long)nbV * (12 + 12 + 8) + (long)nbIdx * 4;
+        long tableauxNatifs = ((long)nbIdx + (long)nbIdx + (long)nbV + 1) * 4;
+
+        Debug.Log(
+            "========== ETAT MEMOIRE DU TERRAIN ==========\n" +
+            "Mode : " + libelleModeBurst() + "\n" +
+            "Resolution : " + resolution + " x " + resolution + "  (" + nbV + " vertices, " +
+            (nbIdx / 3) + " triangles)\n" +
+            "Tableaux C# du terrain (estim.)  : " + (tableauxManages / MO).ToString("F0") + " Mo\n" +
+            "Tableaux natifs voisinage (estim): " + (tableauxNatifs / MO).ToString("F0") + " Mo\n" +
+            "Memoire C# manage (GC)           : " + (managee / MO).ToString("F0") + " Mo\n" +
+            "Memoire Unity allouee / reservee : " + (alloueUnity / MO).ToString("F0") + " / " +
+            (reserveUnity / MO).ToString("F0") + " Mo\n" +
+            "FPS (lisses) : " + p_fps.ToString("F0"));
+
+        int[] resolutions = { 1024, 2048, 4096 };
+        string rapport = "========== TEST DE CHARGE SINUSOIDE (grilles synthetiques, calcul seul) ==========\n" +
+                         "Mode : " + libelleModeBurst() + "\n";
+
+        for (int r = 0; r < resolutions.Length; r++)
+        {
+            int res = resolutions[r];
+            int n = res * res;
+            float pas = dimension / (res - 1);
+            float frequence = 2f * Mathf.PI / dimension;
+
+            rapport += res + " x " + res + " = " + (n / 1000000f).ToString("F1") + " M vertices (" +
+                       (n * 12L / MO).ToString("F0") + " Mo par tableau) : ";
+
+            Vector3[] seq = null;
+            NativeArray<Vector3> natif = default(NativeArray<Vector3>);
+
+            try
+            {
+                seq = new Vector3[n];
+                System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+                for (int index = 0; index < n; index++)
+                {
+                    float x = (index / res) * pas;
+                    float z = (index % res) * pas;
+                    float y = Mathf.Sin(x * frequence * 2f)
+                            * Mathf.Sin(z * frequence * 2f)
+                            * hauteurSinusoide;
+                    seq[index] = new Vector3(x, y, z);
+                }
+                double tSeq = chrono.Elapsed.TotalMilliseconds;
+                seq = null;
+                System.GC.Collect();
+
+                // --- Jobs (+ Burst si actif) : 1 passe d'echauffement puis 3 mesures ---
+                natif = new NativeArray<Vector3>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+
+                double tJob = 0.0;
+                for (int passe = 0; passe < 4; passe++)
+                {
+                    chrono.Restart();
+
+                    GrilleSyntheseJob grille = new GrilleSyntheseJob
+                    {
+                        vertices = natif,
+                        resolution = res,
+                        pas = pas
+                    };
+                    JobHandle h1 = grille.Schedule(n, 64);
+
+                    SinusoideTerrainJob sinus = new SinusoideTerrainJob
+                    {
+                        vertices = natif,
+                        frequence = frequence,
+                        hauteur = hauteurSinusoide
+                    };
+                    sinus.Schedule(n, 64, h1).Complete();
+
+                    if (passe > 0)
+                        tJob += chrono.Elapsed.TotalMilliseconds / 3.0;
+                }
+
+                rapport += "sequentiel " + tSeq.ToString("F0") + " ms | jobs " + tJob.ToString("F1") +
+                           " ms | gain x" + (tJob > 0.0 ? (tSeq / tJob).ToString("F1") : "?") + "\n";
+            }
+            catch (System.Exception e)
+            {
+                rapport += "ECHEC (memoire ?) : " + e.GetType().Name + "\n";
+            }
+            finally
+            {
+                if (natif.IsCreated)
+                    natif.Dispose();
+                seq = null;
+                System.GC.Collect();
+            }
+        }
+
+        Debug.Log(rapport + "========================================================================");
+    }
+    private void mesurerPerformances4Jobs()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+        {
+            UnityEngine.Debug.LogWarning(
+                "Impossible de mesurer : le terrain n'est pas initialise.");
+            return;
+        }
+
+        UnityEngine.Debug.Log(
+            "========== COMPARAISON SEQUENTIEL / PARALLELE ==========\n" +
+            "Vertices : " + p_vertices.Length + "\n" +
+            "Repetitions : " + repetitionsMesure + "\n" +
+            "Lot Jobs : " + lotMesure + "\n" +
+            "Mode : " + libelleModeBurst() + "\n" +
+            "(Jobs seul <-> Jobs+Burst : menu Jobs > Burst > Enable Compilation)");
+
+        double sinusoideSeq = mesurerSinusoideSequentiel();
+        double sinusoideJob = mesurerSinusoideJob();
+
+        double collineSeq = mesurerCollineSequentiel();
+        double collineJob = mesurerCollineJob();
+
+        double perlinSeq = mesurerPerlinSequentiel();
+        double perlinJob = mesurerPerlinJob();
+        double perlinJobBurst = mesurerPerlinJobBurst();
+
+        double textureSeq = mesurerTextureSequentiel();
+        double textureJob = mesurerTextureJob();
+
+        afficherResultatMesure("SINUSOIDE", sinusoideSeq, sinusoideJob);
+        afficherResultatMesure("COLLINE", collineSeq, collineJob);
+        afficherResultatMesure("PERLIN (Mathf.PerlinNoise, Jobs seul)", perlinSeq, perlinJob);
+        afficherResultatMesure("PERLIN (cnoise, Jobs + Burst)", perlinSeq, perlinJobBurst);
+        afficherResultatMesure("TEXTURE", textureSeq, textureJob);
+        mesurerNormales();
+        mesurerReinitialisation();
+        mesurerBakerVoisins();
+        mesurerInfluenceLot();
+
+        UnityEngine.Debug.Log("========================================================");
+    }
 
     // --------------------------------------------------------------------
     // UPDATE
@@ -1290,19 +2259,15 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     void Update()
     {
+        gererJobAsync();
+        p_fps = Mathf.Lerp(p_fps, 1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f), 0.05f);
         gererClavier();
-
         gererCamera();
-
         //gererPicking();
-
         gererSculptureTerrain();
-
         gererAffichageNormales();
-
         gererDoubleF11();
     }
-
 
     // --------------------------------------------------------------------
     // CLAVIER
@@ -1312,7 +2277,6 @@ public class CreationSimpleTerrain : MonoBehaviour
     {
         if (Keyboard.current == null)
             return;
-
 
         // ------------------------------------------------------------
         // F1 : aide
@@ -1324,12 +2288,11 @@ public class CreationSimpleTerrain : MonoBehaviour
                 !p_afficherAide;
         }
 
-
         // ------------------------------------------------------------
         // F2 : fonctions
         // ------------------------------------------------------------
 
-        if (Keyboard.current.f2Key.wasPressedThisFrame)
+        if (Keyboard.current.f2Key.wasPressedThisFrame && !p_asyncEnCours)
         {
             choixModeDeformation =
                 ChoixModeDeformation.Fonction;
@@ -1344,12 +2307,11 @@ public class CreationSimpleTerrain : MonoBehaviour
             appliquerDeformation_Fonction();
         }
 
-
         // ------------------------------------------------------------
         // F3 : HeightMaps
         // ------------------------------------------------------------
 
-        if (Keyboard.current.f3Key.wasPressedThisFrame)
+        if (Keyboard.current.f3Key.wasPressedThisFrame && !p_asyncEnCours)
         {
             choixModeDeformation =
                 ChoixModeDeformation.Texture;
@@ -1365,6 +2327,43 @@ public class CreationSimpleTerrain : MonoBehaviour
             appliquerDeformation_Texture();
         }
 
+        // ------------------------------------------------------------
+        // F4 : HeightMaps en asynchrone (TP5)
+        // ------------------------------------------------------------
+
+        if (Keyboard.current.f4Key.wasPressedThisFrame && !p_asyncEnCours)
+        {
+            choixModeDeformation =
+                ChoixModeDeformation.Texture;
+
+            if (textures != null &&
+                textures.Count > 0)
+            {
+                numTexture =
+                    (numTexture + 1)
+                    % textures.Count;
+            }
+
+            lancerDeformationTextureAsync();
+        }
+
+        // ------------------------------------------------------------
+        // F5 : mesurer les traitements avec Jobs / Burst
+        // ------------------------------------------------------------
+
+        if (Keyboard.current.f5Key.wasPressedThisFrame && !p_asyncEnCours)
+        {
+            mesurerPerformances4Jobs();
+        }
+
+        // ------------------------------------------------------------
+        // F6 : memoire + test de charge (TP5/TP6)
+        // ------------------------------------------------------------
+
+        if (Keyboard.current.f6Key.wasPressedThisFrame && !p_asyncEnCours)
+        {
+            mesurerLimitesMemoire();
+        }
 
         // ------------------------------------------------------------
         // F10 : normales
@@ -1382,12 +2381,11 @@ public class CreationSimpleTerrain : MonoBehaviour
                 DUREE_AFFICHAGE_NORMALES;
         }
 
-
         // ------------------------------------------------------------
-        // F12 : méthode de calcul des normales
+        // F12 : methode de calcul des normales
         // ------------------------------------------------------------
 
-        if (Keyboard.current.f12Key.wasPressedThisFrame)
+        if (Keyboard.current.f12Key.wasPressedThisFrame && !p_asyncEnCours)
         {
             modeNormale =
                 (ModeNormale)
@@ -1396,21 +2394,16 @@ public class CreationSimpleTerrain : MonoBehaviour
                     % 3
                 );
 
-
             recalculerToutesLesNormales();
-
             appliquerMesh();
-
 
             Debug.Log(
                 "Mode normale : "
                 + modeNormale
             );
         }
-
         // ------------------------------------------------------------
         // EXERCICE 2 : Z = changer de distance
-        // D reste reserve au deplacement de la camera.
         // ------------------------------------------------------------
         if (Keyboard.current.zKey.wasPressedThisFrame)
         {
@@ -1424,7 +2417,6 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-
     // --------------------------------------------------------------------
     // DOUBLE F11
     // --------------------------------------------------------------------
@@ -1434,12 +2426,10 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (Keyboard.current == null)
             return;
 
-
-        if (Keyboard.current.f11Key.wasPressedThisFrame)
+        if (Keyboard.current.f11Key.wasPressedThisFrame && !p_asyncEnCours)
         {
             float maintenant =
                 Time.time;
-
 
             if (maintenant -
                 p_dernierAppuiF11
@@ -1456,7 +2446,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             }
         }
     }
-
 
     // --------------------------------------------------------------------
     // PICKING
@@ -1481,8 +2470,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         p_pointPickingDisponible = true;
 
-
-        // Une colline est ajoutée
+        // Une colline est ajoutee
         // uniquement lorsque le mode fonction
         // est sur Collines.
         if (choixModeDeformation ==
@@ -1495,9 +2483,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 hit.point.z
             );
 
-
             recalculerToutesLesNormales();
-
             appliquerMesh();
         }
     }
@@ -1505,7 +2491,6 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     // CAMERA
     // --------------------------------------------------------------------
-
     private void gererCamera()
     {
         if (p_cam == null)
@@ -1517,7 +2502,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         float delta = vitesseCamera * Time.deltaTime;
         Vector3 direction = Vector3.zero;
 
-        // --- DÉPLACEMENT ZQSD PHYSIQUE (Touches QWERTY WASD) ---
+        // --- DEPLACEMENT ZQSD PHYSIQUE (Touches QWERTY WASD) ---
         if (Keyboard.current.wKey.isPressed) // AZERTY Z (Avancer)
             direction += p_cam.transform.forward;
 
@@ -1564,7 +2549,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_cam.transform.Rotate(Vector3.right, rotation, Space.Self);
         }
 
-        // R tourne le terrain. (Le R est à la même place en AZERTY et QWERTY)
+        // R tourne le terrain. (Le R est a la meme place en AZERTY et QWERTY)
         if (Keyboard.current.rKey.isPressed)
         {
             transform.Rotate(
@@ -1584,23 +2569,19 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (p_tempsAffichageNormales <= 0f)
             return;
 
-
         p_tempsAffichageNormales -=
             Time.deltaTime;
-
 
         if (p_vertices == null)
             return;
 
-
-        // Pour éviter de dessiner plusieurs milliers
-        // de lignes à chaque frame.
+        // Pour eviter de dessiner plusieurs milliers
+        // de lignes a chaque frame.
         int pas =
             Mathf.Max(
                 1,
                 p_vertices.Length / 1000
             );
-
 
         for (int i = 0;
              i < p_vertices.Length;
@@ -1615,7 +2596,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             Vector3 direction =
                 Vector3.zero;
 
-
             // --------------------------------------------------------
             // Mode 0 : normales vertices
             // --------------------------------------------------------
@@ -1628,9 +2608,8 @@ public class CreationSimpleTerrain : MonoBehaviour
                     );
             }
 
-
             // --------------------------------------------------------
-            // Mode 1 : normale d'éclairage
+            // Mode 1 : normale d'eclairage
             // moyenne des normales des 3 vertices
             // --------------------------------------------------------
 
@@ -1639,7 +2618,6 @@ public class CreationSimpleTerrain : MonoBehaviour
                 direction =
                     calculerNormaleEclairage(i);
             }
-
 
             // --------------------------------------------------------
             // Mode 2 : normale d'orientation
@@ -1651,10 +2629,9 @@ public class CreationSimpleTerrain : MonoBehaviour
                     calculerNormaleOrientation(i);
             }
 
-
             // --------------------------------------------------------
             // Mode 3 :
-            // orientation + éclairage
+            // orientation + eclairage
             // --------------------------------------------------------
 
             else
@@ -1664,7 +2641,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
                 Vector3 normaleOrientation =
                     calculerNormaleOrientation(i);
-
 
                 Debug.DrawLine(
                     origine,
@@ -1682,8 +2658,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
                 continue;
             }
-
-
             Debug.DrawLine(
                 origine,
                 origine +
@@ -1692,25 +2666,19 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
         }
     }
-
-
     // --------------------------------------------------------------------
     // NORMALE D'ECLAIRAGE
     // --------------------------------------------------------------------
-
     private Vector3 calculerNormaleEclairage(
         int vertex)
     {
         List<int> triangles =
             p_trianglesParVertex[vertex];
 
-
         Vector3 resultat =
             Vector3.zero;
 
-
         int nombre = 0;
-
 
         foreach (int triangleIndex in triangles)
         {
@@ -1722,7 +2690,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
             int c =
                 p_triangles[triangleIndex + 2];
-
 
             Vector3 normaleA =
                 p_normals[a];
@@ -1738,26 +2705,18 @@ public class CreationSimpleTerrain : MonoBehaviour
                 normaleA +
                 normaleB +
                 normaleC;
-
-
             nombre += 3;
         }
-
-
         if (nombre == 0)
             return Vector3.up;
-
 
         return transform.TransformDirection(
             (resultat / nombre).normalized
         );
     }
-
-
     // --------------------------------------------------------------------
     // NORMALE D'ORIENTATION
     // --------------------------------------------------------------------
-
     private Vector3 calculerNormaleOrientation(
         int vertex)
     {
@@ -1784,178 +2743,79 @@ public class CreationSimpleTerrain : MonoBehaviour
             normale
         );
     }
-
-
     // --------------------------------------------------------------------
     // GUI
     // --------------------------------------------------------------------
-
     private void OnGUI()
     {
+        // FPS toujours visibles (TP5)
+        GUI.Label(
+            new Rect(10, 5, 200, 20),
+            "FPS : " + p_fps.ToString("F0")
+        );
+
         if (!p_afficherAide)
             return;
-
 
         GUI.Box(
             new Rect(
                 20,
-                20,
+                30,
                 460,
                 1100
             ),
             ""
         );
 
-
         GUILayout.BeginArea(
             new Rect(
                 40,
-                35,
+                45,
                 420,
                 1090
             )
         );
 
-        GUILayout.Label(
-            "INFORMATIONS DU MAILLAGE"
-        );
-
+        GUILayout.Label("INFORMATIONS DU MAILLAGE");
 
         if (p_vertices != null)
         {
-            GUILayout.Label(
-                $"Vertices : {p_vertices.Length}"
-                );
-
-            GUILayout.Label(
-                $"Triangles : {p_triangles.Length / 3}"
-                );
-
-            GUILayout.Label(
-                $"Resolution : {resolution} x {resolution}"
-                );
-
-            GUILayout.Label(
-                $"Mémoire approximative : {calculerMemoireMesh()} Ko"
-                );
+            GUILayout.Label($@"Vertices : {p_vertices.Length}   |   Triangles : {p_triangles.Length / 3}");
+            GUILayout.Label($"Resolution : {resolution} x {resolution}   |   Memoire approximative : {calculerMemoireMesh()} Ko");
         }
-       
-        GUILayout.Label(
-            "PARAMETRES"
-            );
+        GUILayout.Label("PARAMETRES");
+        GUILayout.Label($"Mode : {choixModeDeformation}   |   Fonction : {typeFonction}");
+        GUILayout.Label($"Normales : {modeNormale}   |   Distance : {distanceUtilisee}");
 
-        GUILayout.Label(
-            $"Mode : {choixModeDeformation}"
-            );
+        GUILayout.Space(10);
+        GUILayout.Label("INTERACTIONS");
+        GUILayout.Label("F1 : Aide / informations");
+        GUILayout.Label("F2 : Fonction suivante   |   F3 / F4 : HeightMap suivante (F4 async)");
+        GUILayout.Label("F5 : Mesurer les Jobs / Burst / normales");
+        GUILayout.Label("F6 : Memoire + test de charge (grilles 1024 a 4096)");
+        GUILayout.Label("F10 : Afficher les normales   |   F11 x2 : Revenir au terrain plat");
+        GUILayout.Label("F12 : Changer le calcul des normales");
+        GUILayout.Label("Z : Changer de distance (Exercice 2)");
+        GUILayout.Label("ZQSD : Deplacer la camera   |   E / A : Monter / Descendre");
+        GUILayout.Label("O/K/L/M : Tourner la camera   |   R : Faire tourner le terrain");
 
-        GUILayout.Label(
-            $"Fonction : {typeFonction}"
-            );
+        GUILayout.Space(10);
+        GUILayout.Label("SCULPTURE INTERACTIVE (EXERCICE 1)");
+        GUILayout.Label($"Pattern Actif : {p_indexPatternCourant}   |   Intensite Max : {intensiteMaxDeformation}   |   Rayon : {rayonDeformation}");
+        GUILayout.Label("Clic Gauche / Droit : Sculpter (Elevation / Depression)");
+        GUILayout.Label("Molette + SHIFT / CTRL / ALT : Varier intensite / rayon / pattern");
 
-        GUILayout.Label(
-            $"Normales : {modeNormale}"
-            );
-
-        GUILayout.Label(
-            $"Distance : {distanceUtilisee}"
-            );
-
-        GUILayout.Label(
-            "INTERACTIONS"
-            );
-
-        GUILayout.Label(
-            "F1 : Aide / informations"
-            );
-
-        GUILayout.Label(
-            "F2 : Fonction suivante    F3 : HeightMap suivante"
-            );
-
-        GUILayout.Label(
-            "F10 : Afficher les normales"
-            );
-
-        GUILayout.Label(
-            "F11 x2 : Revenir au terrain plat"
-            );
-
-        GUILayout.Label(
-            "F12 : Changer le calcul des normales"
-            );
-
-        GUILayout.Label(
-            "Z : Changer de distance (Exercice 2)"
-            );
-
-        GUILayout.Label(
-            "ZQSD : Déplacer la caméra      E / A : Monter / Descendre"
-            );
-
-        GUILayout.Label(
-            "O/K/L/M : Tourner la caméra        R : Faire tourner le terrain"
-            );
-
-        GUILayout.Label(
-            "SCULPTURE INTERACTIVE (EXERCICE 1)"
-            );
-
-        GUILayout.Label(
-            $"Pattern Actif : {p_indexPatternCourant}"
-            );
-
-        GUILayout.Label(
-            $"Intensité Max : {intensiteMaxDeformation}"
-            );
-
-        GUILayout.Label(
-            $"Rayon : {rayonDeformation}"
-            );
-
-        GUILayout.Label(
-            "INTERACTIONS SCULPTURE"
-            );
-
-        GUILayout.Label(
-            "Clic Gauche : Sculpter (Elévation)"
-            );
-
-        GUILayout.Label(
-            "Clic Droit : Sculpter (Dépression)"
-            );
-
-        GUILayout.Label(
-            "Molette + SHIFT : Varier l'intensité"
-            );
-
-        GUILayout.Label(
-            "Molette + CTRL : Varier le rayon"
-            );
-
-        GUILayout.Label(
-            "Molette + ALT : Changer de pattern"
-            );
-
-        GUILayout.Label(
-            "EXERCICE 2 - DISTANCES"
-            );
-
-        GUILayout.Label(
-            "W : Euclidienne / Euclidienne carree / Manhattan / Chebyshev"
-            );
-
-        GUILayout.Label(
-           "Espace : visualiser le voisinage"
-           );
-
-        GUILayout.Label($"Voisins (Espace) : {p_nombreVoisins}");
+        GUILayout.Space(10);
+        GUILayout.Label("EXERCICE 2 - DISTANCES");
+        GUILayout.Label("W : Euclidienne / Euclidienne carree / Manhattan / Chebyshev");
+        GUILayout.Label($"Espace : Visualiser le voisinage   |   Voisins : {p_nombreVoisins}");
 
         GUILayout.Space(10);
         GUILayout.Label("PARAMETRES LOD :");
 
         // Affichage si le LOD est actif ou pas
         LODGroup lodGroup = GetComponent<LODGroup>();
-        if ( lodGroup != null )
+        if (lodGroup != null)
         {
             LOD[] lods = lodGroup.GetLODs();
             string status = "LOD Inactif / Hors champs";
@@ -1968,14 +2828,12 @@ public class CreationSimpleTerrain : MonoBehaviour
                     break;
                 }
             }
-
             GUILayout.Space(10);
             GUILayout.Label(status);
         }
 
         GUILayout.EndArea();
     }
-
 
     // --------------------------------------------------------------------
     // MEMOIRE
@@ -1986,33 +2844,27 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (p_vertices == null)
             return 0;
 
-
         long memoire =
             p_vertices.Length *
             3 *
             sizeof(float);
-
 
         memoire +=
             p_normals.Length *
             3 *
             sizeof(float);
 
-
         memoire +=
             p_uv.Length *
             2 *
             sizeof(float);
 
-
         memoire +=
             p_triangles.Length *
             sizeof(int);
 
-
         return memoire / 1024;
     }
-
 
     // --------------------------------------------------------------------
     // SCULPTURE DU TERRAIN
@@ -2026,6 +2878,10 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (Keyboard.current == null)
             return;
 
+        // TP5 : pas de sculpture pendant un job asynchrone
+        // (p_vertices sera ecrase par le resultat du job).
+        if (p_asyncEnCours)
+            return;
 
         // ============================================================
         // MOLETTE
@@ -2034,11 +2890,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         float scrollY =
             Mouse.current.scroll.ReadValue().y;
 
-
         if (Mathf.Abs(scrollY) > 0.01f)
         {
             Debug.Log("MOLETTE = " + scrollY);
-
 
             // --------------------------------------------------------
             // SHIFT + MOLETTE = INTENSITE
@@ -2066,7 +2920,6 @@ public class CreationSimpleTerrain : MonoBehaviour
                     + intensiteMaxDeformation
                 );
             }
-
 
             // --------------------------------------------------------
             // CTRL + MOLETTE = RAYON
@@ -2135,7 +2988,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             }
         }
 
-
         // ============================================================
         // VERIFICATION DU PATTERN
         // ============================================================
@@ -2145,7 +2997,6 @@ public class CreationSimpleTerrain : MonoBehaviour
         {
             return;
         }
-
 
         if (p_indexPatternCourant >=
             patternsDeformation.Length)
@@ -2159,7 +3010,6 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_indexPatternCourant =
                 patternsDeformation.Length - 1;
         }
-
 
         // ============================================================
         // CLIC / ESPACE
@@ -2197,11 +3047,9 @@ public class CreationSimpleTerrain : MonoBehaviour
             }
         }
     }
-
     // --------------------------------------------------------------------
     // EXERCICE 2 : CALCUL DES DISTANCES
     // --------------------------------------------------------------------
-
     private float calculerDistanceNormalisee(Vector3 vertex, Vector3 centre, out bool dansRayon)
     {
         float dx = vertex.x - centre.x;
@@ -2237,11 +3085,9 @@ public class CreationSimpleTerrain : MonoBehaviour
                 }
         }
     }
-
     // --------------------------------------------------------------------
     // PATTERN DE DEFORMATION
     // --------------------------------------------------------------------
-
     private void appliquerPatternDeformation(Vector3 pointMonde, bool elevation)
     {
         if (p_vertices == null)
@@ -2284,13 +3130,11 @@ public class CreationSimpleTerrain : MonoBehaviour
             recalculerToutesLesNormales();
             appliquerMesh();
         }
-    }    
-    
-    
+    }
+
     // --------------------------------------------------------------------
     // PREVISUALISATION DE LA DEFORMATION
     // --------------------------------------------------------------------
-
     private void previsualiserDeformation(Vector3 pointMonde)
     {
         if (p_vertices == null)
