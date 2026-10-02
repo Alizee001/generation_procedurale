@@ -8,16 +8,28 @@ using Unity.Jobs;
 using System.Collections;
 using System.Runtime.CompilerServices;
 
-
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
 
-// ================================================================
-// TP5 -> TP4 : Jobs + Burst pour accelerer les traitements de generation
-// ================================================================
-
 [BurstCompile(CompileSynchronously = true)]
+public struct SinusoideTerrainBurstJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices;
+    public float frequence;
+    public float hauteur;
+
+    public void Execute(int index)
+    {
+        Vector3 v = vertices[index];
+        v.y = Mathf.Sin(v.x * frequence * 2f)
+             * Mathf.Sin(v.z * frequence * 2f)
+             * hauteur;
+        vertices[index] = v;
+    }
+}
+
+// Version Jobs sans Burst : sert de comparaison TP5.
 public struct SinusoideTerrainJob : IJobParallelFor
 {
     public NativeArray<Vector3> vertices;
@@ -28,13 +40,34 @@ public struct SinusoideTerrainJob : IJobParallelFor
     {
         Vector3 v = vertices[index];
         v.y = Mathf.Sin(v.x * frequence * 2f)
-            * Mathf.Sin(v.z * frequence * 2f)
-            * hauteur;
+             * Mathf.Sin(v.z * frequence * 2f)
+             * hauteur;
         vertices[index] = v;
     }
 }
 
 [BurstCompile(CompileSynchronously = true)]
+public struct CollineTerrainBurstJob : IJobParallelFor
+{
+    public NativeArray<Vector3> vertices;
+    public float centreX;
+    public float centreZ;
+    public float sigma;
+    public float hauteur;
+
+    public void Execute(int index)
+    {
+        Vector3 v = vertices[index];
+        float dx = v.x - centreX;
+        float dz = v.z - centreZ;
+        float distanceCarree = dx * dx + dz * dz;
+        float facteur = Mathf.Exp(-distanceCarree / (2f * sigma * sigma));
+        v.y = hauteur * facteur;
+        vertices[index] = v;
+    }
+}
+
+// Version Jobs sans Burst : sert de comparaison TP5.
 public struct CollineTerrainJob : IJobParallelFor
 {
     public NativeArray<Vector3> vertices;
@@ -54,6 +87,8 @@ public struct CollineTerrainJob : IJobParallelFor
         vertices[index] = v;
     }
 }
+
+// Même calcul Perlin pour comparer correctement C# / Jobs / Jobs+Burst.
 public struct PerlinTerrainJob : IJobParallelFor
 {
     public NativeArray<Vector3> vertices;
@@ -64,15 +99,18 @@ public struct PerlinTerrainJob : IJobParallelFor
     public void Execute(int index)
     {
         Vector3 v = vertices[index];
-        float x = v.x * echelle + seed;
-        float z = v.z * echelle + seed;
-        float bruit = Mathf.PerlinNoise(x, z);
-        v.y = (bruit - 0.5f) * 2f * hauteur;
+
+        Unity.Mathematics.float2 p = new Unity.Mathematics.float2(
+            v.x * echelle + seed,
+            v.z * echelle + seed);
+
+        float bruit = Unity.Mathematics.noise.cnoise(p);
+        v.y = bruit * hauteur;
+
         vertices[index] = v;
     }
 }
 
-// Version Burst : bruit de Unity.Mathematics (autre bruit, valeurs ~[-1 ; 1]).
 [BurstCompile(CompileSynchronously = true)]
 public struct PerlinTerrainBurstJob : IJobParallelFor
 {
@@ -84,25 +122,30 @@ public struct PerlinTerrainBurstJob : IJobParallelFor
     public void Execute(int index)
     {
         Vector3 v = vertices[index];
+
         Unity.Mathematics.float2 p = new Unity.Mathematics.float2(
             v.x * echelle + seed,
             v.z * echelle + seed);
+
         float bruit = Unity.Mathematics.noise.cnoise(p);
         v.y = bruit * hauteur;
+
         vertices[index] = v;
     }
 }
 
-[BurstCompile(CompileSynchronously = true)]
+// Version Jobs sans Burst : même interpolation bilinéaire que la version Burst.
 public struct TextureTerrainJob : IJobParallelFor
 {
     [ReadOnly]
     public NativeArray<Color> pixels;
+
     public NativeArray<Vector3> vertices;
     public int largeurImage;
     public int hauteurImage;
     public int resolution;
     public float hauteurMax;
+
     public void Execute(int index)
     {
         int i = index % resolution;
@@ -133,6 +176,63 @@ public struct TextureTerrainJob : IJobParallelFor
 
         Vector3 vertex = vertices[index];
         vertex.y = couleur.grayscale * hauteurMax;
+        vertices[index] = vertex;
+    }
+}
+
+[BurstCompile(CompileSynchronously = true)]
+public struct TextureTerrainBurstJob : IJobParallelFor
+{
+    [ReadOnly]
+    public NativeArray<Color> pixels;
+
+    public NativeArray<Vector3> vertices;
+    public int largeurImage;
+    public int hauteurImage;
+    public int resolution;
+    public float hauteurMax;
+
+    public void Execute(int index)
+    {
+        int i = index % resolution;
+        int j = index / resolution;
+
+        float u = (float)i / (resolution - 1);
+        float v = (float)j / (resolution - 1);
+
+        float px = u * (largeurImage - 1);
+        float py = v * (hauteurImage - 1);
+
+        int x0 = (int)px;
+        int y0 = (int)py;
+        int x1 = Mathf.Min(x0 + 1, largeurImage - 1);
+        int y1 = Mathf.Min(y0 + 1, hauteurImage - 1);
+
+        float tx = px - x0;
+        float ty = py - y0;
+
+        Color c00 = pixels[y0 * largeurImage + x0];
+        Color c10 = pixels[y0 * largeurImage + x1];
+        Color c01 = pixels[y1 * largeurImage + x0];
+        Color c11 = pixels[y1 * largeurImage + x1];
+
+        // Interpolation manuelle pour rester simple et Burst-compatible.
+        float r0 = c00.r + (c10.r - c00.r) * tx;
+        float g0 = c00.g + (c10.g - c00.g) * tx;
+        float b0 = c00.b + (c10.b - c00.b) * tx;
+
+        float r1 = c01.r + (c11.r - c01.r) * tx;
+        float g1 = c01.g + (c11.g - c01.g) * tx;
+        float b1 = c01.b + (c11.b - c01.b) * tx;
+
+        float r = r0 + (r1 - r0) * ty;
+        float g = g0 + (g1 - g0) * ty;
+        float b = b0 + (b1 - b0) * ty;
+
+        float gris = r * 0.299f + g * 0.587f + b * 0.114f;
+
+        Vector3 vertex = vertices[index];
+        vertex.y = gris * hauteurMax;
         vertices[index] = vertex;
     }
 }
@@ -200,11 +300,6 @@ public struct NormalesVertexJob : IJobParallelFor
     }
 }
 
-// ================================================================
-// TP5 : jobs complementaires
-// ================================================================
-
-// "Hello World" du TP (section 5) : remise a plat y = constante.
 [BurstCompile(CompileSynchronously = true)]
 public struct ReinitialiserTerrainJob : IJobParallelFor
 {
@@ -365,8 +460,6 @@ public class CreationSimpleTerrain : MonoBehaviour
     [Header("TP5 - Jobs / Burst")]
     [Tooltip("Normales calculees par job (sinon ancienne boucle C#)")]
     public bool utiliserJobNormales = true;
-    [Tooltip("Perlin : false = Mathf.PerlinNoise (Jobs seul), true = cnoise (Burst)")]
-    public bool perlinBurst = false;
 
     // Creation des mesh et vertices pour le LOD
     private Mesh meshLOD0, meshLOD1, meshLOD2;
@@ -422,6 +515,8 @@ public class CreationSimpleTerrain : MonoBehaviour
     //private int[] p_triangles;
 
     private Camera p_cam;
+    private float p_cameraPitch;
+    [SerializeField] private float sensibiliteSourisCamera = 0.15f;
 
     private LayerMask maskPickingTerrain;
 
@@ -536,6 +631,9 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         if (p_cam == null)
             p_cam = FindFirstObjectByType<Camera>();
+
+        if (p_cam != null)
+            p_cameraPitch = p_cam.transform.localEulerAngles.x;
 
         int layerTerrain = LayerMask.NameToLayer("L_PickingTerrain");
 
@@ -1469,7 +1567,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        SinusoideTerrainJob job = new SinusoideTerrainJob
+        SinusoideTerrainBurstJob job = new SinusoideTerrainBurstJob
         {
             vertices = verticesNative,
             frequence = 2f * Mathf.PI / dimension,
@@ -1498,7 +1596,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        CollineTerrainJob job = new CollineTerrainJob
+        CollineTerrainBurstJob job = new CollineTerrainBurstJob
         {
             vertices = verticesNative,
             centreX = centreX,
@@ -1524,31 +1622,15 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        if (perlinBurst)
+        PerlinTerrainBurstJob job = new PerlinTerrainBurstJob
         {
-            PerlinTerrainBurstJob jobBurst = new PerlinTerrainBurstJob
-            {
-                vertices = verticesNative,
-                echelle = echellePerlin,
-                seed = p_seedPerlin,
-                hauteur = hauteurPerlin
-            };
+            vertices = verticesNative,
+            echelle = echellePerlin,
+            seed = p_seedPerlin,
+            hauteur = hauteurPerlin
+        };
 
-            jobBurst.Schedule(verticesNative.Length, 64).Complete();
-        }
-        else
-        {
-            PerlinTerrainJob job = new PerlinTerrainJob
-            {
-                vertices = verticesNative,
-                echelle = echellePerlin,
-                seed = p_seedPerlin,
-                hauteur = hauteurPerlin
-            };
-
-            JobHandle handle = job.Schedule(verticesNative.Length, 64);
-            handle.Complete();
-        }
+        job.Schedule(verticesNative.Length, 64).Complete();
 
         verticesNative.CopyTo(p_vertices);
         verticesNative.Dispose();
@@ -1591,7 +1673,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         NativeArray<Color> pixelsNative = new NativeArray<Color>(pixels, Allocator.TempJob);
         NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        TextureTerrainJob job = new TextureTerrainJob
+        TextureTerrainBurstJob job = new TextureTerrainBurstJob
         {
             pixels = pixelsNative,
             vertices = verticesNative,
@@ -1601,7 +1683,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             hauteurMax = hauteurTexture
         };
 
-        JobHandle handle = job.Schedule(verticesNative.Length, 16);
+        JobHandle handle = job.Schedule(verticesNative.Length, 64);
         handle.Complete();
 
         verticesNative.CopyTo(p_vertices);
@@ -1651,7 +1733,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         p_asyncVertices = new NativeArray<Vector3>(p_vertices, Allocator.Persistent);
         p_asyncNormales = new NativeArray<Vector3>(p_vertices.Length, Allocator.Persistent);
 
-        TextureTerrainJob jobTexture = new TextureTerrainJob
+        TextureTerrainBurstJob jobTexture = new TextureTerrainBurstJob
         {
             pixels = p_asyncPixels,
             vertices = p_asyncVertices,
@@ -2161,10 +2243,11 @@ public class CreationSimpleTerrain : MonoBehaviour
             for (int index = 0; index < verticesTest.Length; index++)
             {
                 Vector3 v = verticesTest[index];
-                float x = v.x * echellePerlin + seed;
-                float z = v.z * echellePerlin + seed;
-                float bruit = Mathf.PerlinNoise(x, z);
-                v.y = (bruit - 0.5f) * 2f * hauteurPerlin;
+                Unity.Mathematics.float2 p = new Unity.Mathematics.float2(
+                    v.x * echellePerlin + seed,
+                    v.z * echellePerlin + seed);
+                float bruit = Unity.Mathematics.noise.cnoise(p);
+                v.y = bruit * hauteurPerlin;
                 verticesTest[index] = v;
             }
         }
@@ -2354,6 +2437,126 @@ public class CreationSimpleTerrain : MonoBehaviour
         chrono.Stop();
         return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
     }
+    private double mesurerSinusoideJobBurst()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+        float frequence = 2f * Mathf.PI / dimension;
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            SinusoideTerrainBurstJob job = new SinusoideTerrainBurstJob
+            {
+                vertices = verticesNative,
+                frequence = frequence,
+                hauteur = hauteurSinusoide
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);   // recopie retour mesuree aussi
+            verticesNative.Dispose();
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+
+    private double mesurerCollineJobBurst()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        float centreX = 0f;
+        float centreZ = 0f;
+        float sigma = Mathf.Max(0.01f, largeurColline);
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            CollineTerrainBurstJob job = new CollineTerrainBurstJob
+            {
+                vertices = verticesNative,
+                centreX = centreX,
+                centreZ = centreZ,
+                sigma = sigma,
+                hauteur = hauteurColline
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);
+            verticesNative.Dispose();
+        }
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+
+    private double mesurerTextureJobBurst()
+    {
+        if (p_vertices == null || p_vertices.Length == 0)
+            return -1.0;
+
+        if (textures == null || textures.Count == 0 || textures[numTexture] == null)
+            return -1.0;
+
+        Texture2D texture = textures[numTexture];
+        Color[] pixels;
+
+        try
+        {
+            pixels = texture.GetPixels();
+        }
+        catch
+        {
+            UnityEngine.Debug.LogError(
+                "Impossible de mesurer la HeightMap : active Read/Write dans les proprietes de la texture.");
+            return -1.0;
+        }
+
+        System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int rep = 0; rep < repetitionsMesure; rep++)
+        {
+            NativeArray<Color> pixelsNative =
+                new NativeArray<Color>(pixels, Allocator.TempJob);
+
+            NativeArray<Vector3> verticesNative =
+                new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+            TextureTerrainBurstJob job = new TextureTerrainBurstJob
+            {
+                pixels = pixelsNative,
+                vertices = verticesNative,
+                largeurImage = texture.width,
+                hauteurImage = texture.height,
+                resolution = resolution,
+                hauteurMax = hauteurTexture
+            };
+
+            JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
+            handle.Complete();
+
+            verticesNative.CopyTo(p_vertices);
+            verticesNative.Dispose();
+            pixelsNative.Dispose();
+        }
+
+        chrono.Stop();
+        return chrono.Elapsed.TotalMilliseconds / repetitionsMesure;
+    }
+
     // Normales : parallele = Schedule (multithread), sinon Run (main thread).
     // Avec Burst actif, Run() isole l'effet "Burst seul".
     private double mesurerNormalesJob(int repetitions, bool parallele)
@@ -2694,49 +2897,94 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         Debug.Log(rapport + "========================================================================");
     }
+    private void afficherResultatMesure4(
+        string nom,
+        double tempsSequentiel,
+        double tempsJobs,
+        double tempsJobsBurst)
+    {
+        Debug.Log(
+            "\n--- " + nom + " ---\n" +
+            "C# sequentiel : " + tempsSequentiel.ToString("F3") + " ms / repetition\n" +
+            "Jobs seul      : " + tempsJobs.ToString("F3") + " ms / repetition\n" +
+            "Jobs + Burst   : " + tempsJobsBurst.ToString("F3") + " ms / repetition\n" +
+            "Gain Jobs      : " +
+                (tempsJobs > 0.0 ? (tempsSequentiel / tempsJobs).ToString("F2") + " x" : "n/a") + "\n" +
+            "Gain Burst     : " +
+                (tempsJobsBurst > 0.0 ? (tempsSequentiel / tempsJobsBurst).ToString("F2") + " x" : "n/a") +
+            "\n");
+    }
+
     private void mesurerPerformances4Jobs()
     {
         if (p_vertices == null || p_vertices.Length == 0)
         {
-            UnityEngine.Debug.LogWarning(
+            Debug.LogWarning(
                 "Impossible de mesurer : le terrain n'est pas initialise.");
             return;
         }
 
-        UnityEngine.Debug.Log(
-            "========== COMPARAISON SEQUENTIEL / PARALLELE ==========\n" +
+        Debug.Log(
+            "\n============================================================\n" +
+            "TP5 - COMPARAISON DES 4 TRAITEMENTS\n" +
+            "C# -> Jobs -> Jobs + Burst\n" +
             "Vertices : " + p_vertices.Length + "\n" +
             "Repetitions : " + repetitionsMesure + "\n" +
             "Lot Jobs : " + lotMesure + "\n" +
-            "Mode : " + libelleModeBurst() + "\n" +
-            "(Jobs seul <-> Jobs+Burst : menu Jobs > Burst > Enable Compilation)");
+            "Burst actuellement : " + (burstEstActif() ? "ACTIF" : "INACTIF") + "\n" +
+            "============================================================");
 
         double sinusoideSeq = mesurerSinusoideSequentiel();
         double sinusoideJob = mesurerSinusoideJob();
+        double sinusoideBurst = mesurerSinusoideJobBurst();
 
         double collineSeq = mesurerCollineSequentiel();
         double collineJob = mesurerCollineJob();
+        double collineBurst = mesurerCollineJobBurst();
 
         double perlinSeq = mesurerPerlinSequentiel();
         double perlinJob = mesurerPerlinJob();
-        double perlinJobBurst = mesurerPerlinJobBurst();
+        double perlinBurst = mesurerPerlinJobBurst();
 
         double textureSeq = mesurerTextureSequentiel();
         double textureJob = mesurerTextureJob();
+        double textureBurst = mesurerTextureJobBurst();
 
-        afficherResultatMesure("SINUSOIDE", sinusoideSeq, sinusoideJob);
-        afficherResultatMesure("COLLINE", collineSeq, collineJob);
-        afficherResultatMesure("PERLIN (Mathf.PerlinNoise, Jobs seul)", perlinSeq, perlinJob);
-        afficherResultatMesure("PERLIN (cnoise, Jobs + Burst)", perlinSeq, perlinJobBurst);
-        afficherResultatMesure("TEXTURE", textureSeq, textureJob);
+        afficherResultatMesure4(
+            "1/4 SINUSOIDE",
+            sinusoideSeq,
+            sinusoideJob,
+            sinusoideBurst);
+
+        afficherResultatMesure4(
+            "2/4 COLLINE GAUSSIENNE",
+            collineSeq,
+            collineJob,
+            collineBurst);
+
+        afficherResultatMesure4(
+            "3/4 PERLIN",
+            perlinSeq,
+            perlinJob,
+            perlinBurst);
+
+        afficherResultatMesure4(
+            "4/4 HEIGHTMAP / TEXTURE",
+            textureSeq,
+            textureJob,
+            textureBurst);
+
+        // Mesures complementaires du TP5.
         mesurerNormales();
         mesurerReinitialisation();
         mesurerBakerVoisins();
         mesurerInfluenceLot();
 
-        UnityEngine.Debug.Log("========================================================");
+        Debug.Log(
+            "\n============================================================\n" +
+            "FIN DES MESURES TP5 - 4 TRAITEMENTS\n" +
+            "============================================================");
     }
-
     // --------------------------------------------------------------------
     // UPDATE
     // --------------------------------------------------------------------
@@ -2789,7 +3037,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 appliquerDeformation_Texture();
             }
         }
-        
+
 
         // F4 : HeightMap asynchrone
         if (Keyboard.current.f4Key.wasPressedThisFrame && !p_asyncEnCours)
@@ -2837,8 +3085,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             Debug.Log("Mode normale : " + modeNormale);
         }
 
-        // Z : changer de metrique de distance
-        if (Keyboard.current.zKey.wasPressedThisFrame)
+        // D : changer de metrique de distance
+        if (Keyboard.current.dKey.wasPressedThisFrame)
         {
             distanceUtilisee = (TypeDistance)(((int)distanceUtilisee + 1) % 4);
             Debug.Log("Distance utilisee : " + distanceUtilisee);
@@ -2858,7 +3106,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             etendreTerrain(Vector2Int.right);
 
         // C : Surlugnage des chunks
-        if(Keyboard.current.cKey.wasPressedThisFrame)
+        if (Keyboard.current.cKey.wasPressedThisFrame)
         {
             StartCoroutine(surligneChunks());
         }
@@ -2936,73 +3184,74 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     private void gererCamera()
     {
-        if (p_cam == null)
+        if (p_cam == null || Keyboard.current == null)
             return;
 
-        if (Keyboard.current == null)
-            return;
-
-        float delta = vitesseCamera * Time.deltaTime;
+        float deltaTemps = vitesseCamera * Time.deltaTime;
         Vector3 direction = Vector3.zero;
 
-        // --- DEPLACEMENT ZQSD PHYSIQUE (Touches QWERTY WASD) ---
-        if (Keyboard.current.wKey.isPressed) // AZERTY Z (Avancer)
+        // ------------------------------------------------------------
+        // CAMERA : ZQSE
+        // Les fleches restent reservees a l'extension des chunks du TP4.
+        // ------------------------------------------------------------
+        if (Keyboard.current.wKey.isPressed)
             direction += p_cam.transform.forward;
 
-        if (Keyboard.current.sKey.isPressed) // AZERTY S (Reculer)
+        if (Keyboard.current.sKey.isPressed)
             direction -= p_cam.transform.forward;
 
-        if (Keyboard.current.dKey.isPressed) // AZERTY D (Droite)
-            direction += p_cam.transform.right;
-
-        if (Keyboard.current.aKey.isPressed) // AZERTY Q (Gauche)
+        if (Keyboard.current.qKey.isPressed)
             direction -= p_cam.transform.right;
 
-        if (Keyboard.current.eKey.isPressed) // AZERTY E (Monter)
+        if (Keyboard.current.eKey.isPressed)
+            direction += p_cam.transform.right;
+
+        if (Keyboard.current.pageUpKey.isPressed)
             direction += Vector3.up;
 
-        if (Keyboard.current.qKey.isPressed) // AZERTY A (Descendre)
+        if (Keyboard.current.pageDownKey.isPressed)
             direction -= Vector3.up;
 
         if (direction.sqrMagnitude > 0.001f)
+            p_cam.transform.position += direction.normalized * deltaTemps;
+
+        // ------------------------------------------------------------
+        // SOURIS DROITE : rotation de la camera.
+        // ------------------------------------------------------------
+        if (Mouse.current != null &&
+            Mouse.current.middleButton.isPressed)
         {
-            p_cam.transform.position += direction.normalized * delta;
+            Vector2 delta = Mouse.current.delta.ReadValue();
+
+            float yaw = delta.x * sensibiliteSourisCamera;
+            float pitch = -delta.y * sensibiliteSourisCamera;
+
+            p_cam.transform.Rotate(
+                Vector3.up,
+                yaw,
+                Space.World);
+
+            p_cameraPitch = Mathf.Clamp(
+                p_cameraPitch + pitch,
+                -89f,
+                89f);
+
+            Vector3 angles = p_cam.transform.localEulerAngles;
+            angles.x = p_cameraPitch;
+            p_cam.transform.localEulerAngles = angles;
         }
 
-        // --- ROTATION OKLM PHYSIQUE (Touches QWERTY O, K, L, ;) ---
-        float rotation = vitesseRotationCamera * Time.deltaTime;
-
-        if (Keyboard.current.kKey.isPressed) // AZERTY K (Gauche)
-        {
-            p_cam.transform.Rotate(Vector3.up, -rotation, Space.World);
-        }
-
-        if (Keyboard.current.semicolonKey.isPressed) // AZERTY M (Droite, touche ";" en QWERTY)
-        {
-            p_cam.transform.Rotate(Vector3.up, rotation, Space.World);
-        }
-
-        if (Keyboard.current.oKey.isPressed) // AZERTY O (Haut)
-        {
-            p_cam.transform.Rotate(Vector3.right, -rotation, Space.Self);
-        }
-
-        if (Keyboard.current.lKey.isPressed) // AZERTY L (Bas)
-        {
-            p_cam.transform.Rotate(Vector3.right, rotation, Space.Self);
-        }
-
-        // R tourne le terrain. (Le R est a la meme place en AZERTY et QWERTY)
+        // ------------------------------------------------------------
+        // R : rotation continue du terrain.
+        // ------------------------------------------------------------
         if (Keyboard.current.rKey.isPressed)
         {
             transform.Rotate(
                 Vector3.up,
                 vitesseRotationTerrain * Time.deltaTime,
-                Space.World
-            );
+                Space.World);
         }
     }
-
     // --------------------------------------------------------------------
     // AFFICHAGE DES NORMALES
     // --------------------------------------------------------------------
@@ -3236,14 +3485,18 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Space(10);
         GUILayout.Label("INTERACTIONS");
         GUILayout.Label("F1 : Aide / informations");
-        GUILayout.Label("F2 : Fonction suivante   |   F3 / F4 : HeightMap suivante (F4 async)");
-        GUILayout.Label("F5 : Mesurer les Jobs / Burst / normales");
-        GUILayout.Label("F6 : Memoire + test de charge (grilles 1024 a 4096)");
-        GUILayout.Label("F10 : Afficher les normales   |   F11 x2 : Revenir au terrain plat");
+        GUILayout.Label("F2 : Fonction suivante   |   F3 : HeightMap suivante");
+        GUILayout.Label("F4 : HeightMap asynchrone (plus-value TP5)");
+        GUILayout.Label("F5 : Mesurer les 4 traitements : C# / Jobs / Jobs+Burst");
+        GUILayout.Label("F6 : Test memoire / charge");
+        GUILayout.Label("F10 : Afficher les normales   |   F11 x2 : Terrain plat");
         GUILayout.Label("F12 : Changer le calcul des normales");
-        GUILayout.Label("Z : Changer de distance (Exercice 2)");
-        GUILayout.Label("ZQSD : Deplacer la camera   |   E / A : Monter / Descendre");
-        GUILayout.Label("O/K/L/M : Tourner la camera   |   R : Faire tourner le terrain");
+        GUILayout.Label("D : Changer de distance (TP4)");
+        GUILayout.Label("Z / S : Avancer / reculer   |   Q / E : Gauche / droite");
+        GUILayout.Label("PageUp / PageDown : Monter / descendre");
+        GUILayout.Label("Clic milieu + souris : Tourner la camera   |   R : Tourner le terrain");
+        GUILayout.Label("Fleches : Etendre le terrain avec les chunks (TP4)");
+        GUILayout.Label("C : Surligner les chunks pendant 3 secondes");
 
         GUILayout.Space(10);
         GUILayout.Label("SCULPTURE INTERACTIVE (EXERCICE 1)");
@@ -3253,7 +3506,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         GUILayout.Space(10);
         GUILayout.Label("EXERCICE 2 - DISTANCES");
-        GUILayout.Label("W : Euclidienne / Euclidienne carree / Manhattan / Chebyshev");
+        GUILayout.Label("D : Euclidienne / Euclidienne carree / Manhattan / Chebyshev");
         GUILayout.Label($"Espace : Visualiser le voisinage   |   Voisins : {p_nombreVoisins}");
 
         GUILayout.Space(10);
@@ -3502,10 +3755,27 @@ public class CreationSimpleTerrain : MonoBehaviour
                 }
                 else
                 {
-                    appliquerPatternDeformation(
-                        hit.point,
-                        clicGauche
-                    );
+                    p_dernierPointPicking = hit.point;
+                    p_pointPickingDisponible = true;
+
+                    // TP3 : en mode Collines, le clic gauche place
+                    // une colline gaussienne sous le pointeur.
+                    if (choixModeDeformation == ChoixModeDeformation.Fonction &&
+                        typeFonction == TypeFonction.Collines &&
+                        clicGauche)
+                    {
+                        appliquerColline(hit.point.x, hit.point.z);
+                        recalculerToutesLesNormales();
+                        appliquerMesh();
+                    }
+                    else
+                    {
+                        // TP4 : sculpture par pattern.
+                        appliquerPatternDeformation(
+                            hit.point,
+                            clicGauche
+                        );
+                    }
                 }
             }
         }
