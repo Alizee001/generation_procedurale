@@ -423,9 +423,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public TypeFonction typeFonction;
 
-    // --------------------------------------------------------------------
     // EXERCICE 2 : METRIQUES DE DISTANCE
-    // --------------------------------------------------------------------
     public enum TypeDistance
     {
         Euclidienne,
@@ -461,19 +459,8 @@ public class CreationSimpleTerrain : MonoBehaviour
     [Tooltip("Normales calculees par job (sinon ancienne boucle C#)")]
     public bool utiliserJobNormales = true;
 
-    // Creation des mesh et vertices pour le LOD
     private Mesh meshLOD0, meshLOD1, meshLOD2;
 
-    //private Vector3[] vertices0, vertices1, vertices2;
-
-    //private Vector3[] normales0, normales1, normales2;
-
-    // Matrice de correspondance (Indice LOD1 -> Indice LOD0)
-    //private int[] mapLOD1to0;
-
-    //private int[] mapLOD2to0;
-
-    //[Header("Normales")]
     public enum ModeNormale
     {
         Basique,
@@ -491,7 +478,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     public float vitesseRotationTerrain = 50f;
 
-    // --- NOUVEAUX PARAMETRES POUR L'EXERCICE 1 ---
     [Header("Sculpture Interactive (Exercice 1)")]
     [Tooltip("Ajoutez des courbes allant de X=0 a X=1, et Y=0 a Y=1")]
     public AnimationCurve[] patternsDeformation;
@@ -499,9 +485,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     public float intensiteMaxDeformation = 10f;
     private int p_indexPatternCourant = 0;
 
-    // --------------------------------------------------------------------
     // Donnees internes
-    // --------------------------------------------------------------------
     private uint p_dimVertices;
     private uint p_dimTriangles;
 
@@ -604,9 +588,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private bool p_surbrillance = false;
 
-    // --------------------------------------------------------------------
     // RESET
-    // --------------------------------------------------------------------
 
     void Reset()
     {
@@ -622,9 +604,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         gameObject.layer = LayerMask.NameToLayer("L_PickingTerrain");
     }
 
-    // --------------------------------------------------------------------
     // AWAKE
-    // --------------------------------------------------------------------
     void Awake()
     {
         p_cam = Camera.main;
@@ -654,9 +634,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         mr.enabled = false;
         GetComponent<MeshCollider>().enabled = false;
     }
-    // --------------------------------------------------------------------
     // START
-    // --------------------------------------------------------------------
 
     void Start()
     {
@@ -674,9 +652,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         //}
 
     }
-    // --------------------------------------------------------------------
     // LIBERATION DE LA MEMOIRE NATIVE
-    // --------------------------------------------------------------------
 
     void OnDestroy()
     {
@@ -685,9 +661,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         libererVoisinsNatifs();
     }
 
-    // --------------------------------------------------------------------
     // INITIALISATION DU GROUPE LOD
-    // --------------------------------------------------------------------
     //void initialiserLODGroup()
     //{
     //    int resLOD0 = 1 << puissance2Resolution;
@@ -728,9 +702,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     //}
 
-    // --------------------------------------------------------------------
-    // CREATION DES ENFANTS DES LOD
-    // --------------------------------------------------------------------
+   // CREATION DES ENFANTS DES LOD
     Renderer creerEnfantsLOD(Transform parent, string nom, int res, out Mesh mesh, out Vector3[] vertices, out Vector3[] norms, out Vector2[] uvs, out int[] tris)
     {
         GameObject child = new GameObject(nom);
@@ -847,7 +819,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         calculerMapping(chunk.res, resLOD1, out chunk.map1);
         calculerMapping(chunk.res, resLOD2, out chunk.map2);
-
     }
 
     private void trouverJumeaux(Chunk chunk, int index_x, int index_z)
@@ -931,9 +902,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-    // --------------------------------------------------------------------
     // CALCUL DU MAPPING
-    // --------------------------------------------------------------------
     void calculerMapping(int resHaut, int resBasse, out int[] map)
     {
         map = new int[resBasse * resBasse];
@@ -952,9 +921,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     }
 
-    // --------------------------------------------------------------------
     // SYNCHRONISATION DES MODIFS DE HAUTEUR ET DE NORMAL
-    // --------------------------------------------------------------------
     private void propagerLOD(Chunk chunk)
     {
         if (puissance2Resolution < 6)
@@ -1058,9 +1025,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         propagerLOD(chunk);
     }
 
-    // --------------------------------------------------------------------
     // CREATION DU MAILLAGE
-    // --------------------------------------------------------------------
 
     //private void creerLeMeshTerrain(Chunk chunk)
     //{
@@ -1074,9 +1039,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //        p_meshCollider = gameObject.AddComponent<MeshCollider>();
 
 
-    //    // ------------------------------------------------------------
     //    // Résolution
-    //    // ------------------------------------------------------------
 
     //    int resolutionInt = 1 << puissance2Resolution;
 
@@ -1089,9 +1052,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    resolutionInt = resolution;
 
 
-    //    // ------------------------------------------------------------
     //    // Nombre de vertices
-    //    // ------------------------------------------------------------
 
     //    long nombreVertices = (long)resolutionInt * resolutionInt;
 
@@ -1112,17 +1073,13 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    p_dimTriangles = (uint)nombreTriangles;
 
 
-    //    // ------------------------------------------------------------
     //    // Espacement
-    //    // ------------------------------------------------------------
 
     //    p_dimInterVertices =
     //        dimension / (resolutionInt - 1);
 
 
-    //    // ------------------------------------------------------------
     //    // Création des tableaux
-    //    // ------------------------------------------------------------
 
     //    //p_vertices = new Vector3[nombreVertices];
     //    //p_normals = new Vector3[nombreVertices];
@@ -1131,9 +1088,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    //p_triangles = new int[nombreTriangles * 3];
 
 
-    //    // ------------------------------------------------------------
     //    // Création des vertices
-    //    // ------------------------------------------------------------
 
     //    //float origine = CentrerPivot
     //    //    ? dimension * 0.5f
@@ -1169,14 +1124,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    //}
 
 
-    //    // ------------------------------------------------------------
     //    // Création des triangles
-    //    //
-    //    // 3 -- 2
-    //    // |  / |
-    //    // 0 -- 1
-    //    //
-    //    // ------------------------------------------------------------
 
     //    //int triangleIndex = 0;
 
@@ -1204,9 +1152,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    //}
 
 
-    //    // ------------------------------------------------------------
     //    // Création du Mesh
-    //    // ------------------------------------------------------------
 
     //    //if (p_mesh != null)
     //    //{
@@ -1218,10 +1164,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    //p_mesh.name = "TerrainProcedural";
 
 
-    //    // ------------------------------------------------------------
-    //    // IMPORTANT :
     //    // Plus de 65535 vertices => indices 32 bits.
-    //    // ------------------------------------------------------------
 
     //    //if (nombreVertices > 65535)
     //    //{
@@ -1248,9 +1191,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    p_meshCollider.sharedMesh = p_mesh;
 
 
-    //    // ------------------------------------------------------------
     //    // Baking des voisins
-    //    // ------------------------------------------------------------
 
     //    bakerVoisins();
 
@@ -1359,9 +1300,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     }
 
 
-    // --------------------------------------------------------------------
     // BAKING DES VOISINS
-    // --------------------------------------------------------------------
 
     private void bakerVoisins(Chunk chunk)
     {
@@ -1416,8 +1355,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         p_voisinsNativesPrets = true;
     }
-
-    // Version C# manage d'origine, conservee uniquement pour la comparaison (F5).
     private void construireVoisinsCSharp(int nbV, out int[] debut, out int[] liste)
     {
         debut = new int[nbV + 1];
@@ -1450,9 +1387,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     }
 
 
-    // --------------------------------------------------------------------
     // TERRAIN PLAT
-    // --------------------------------------------------------------------
 
     private void remettreTerrainPlat()
     {
@@ -1469,9 +1404,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         appliquerMesh();
     }
 
-    // --------------------------------------------------------------------
     // APPLICATION DU MESH
-    // --------------------------------------------------------------------
 
     private void appliquerMesh()
     {
@@ -1501,9 +1434,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         //propagerLOD();
     }
 
-    // --------------------------------------------------------------------
     // DEFORMATION PAR FONCTION
-    // --------------------------------------------------------------------
 
     private void appliquerDeformation_Fonction()
     {
@@ -1517,7 +1448,6 @@ public class CreationSimpleTerrain : MonoBehaviour
                 appliquerSinusoide();
 
                 break;
-
 
             case TypeFonction.Collines:
 
@@ -1556,9 +1486,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         appliquerMesh();
     }
 
-    // --------------------------------------------------------------------
     // SINUSOIDE
-    // --------------------------------------------------------------------
 
     private void appliquerSinusoide()
     {
@@ -1580,10 +1508,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         verticesNative.CopyTo(p_vertices);
         verticesNative.Dispose();
     }
-
-    // --------------------------------------------------------------------
     // COLLINE GAUSSIENNE
-    // --------------------------------------------------------------------
 
     private void appliquerColline(
         float centreX,
@@ -1612,9 +1537,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         verticesNative.Dispose();
     }
 
-    // --------------------------------------------------------------------
     // PERLIN NOISE
-    // --------------------------------------------------------------------
     private void appliquerPerlin()
     {
         if (p_vertices == null || p_vertices.Length == 0)
@@ -1636,9 +1559,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         verticesNative.Dispose();
     }
 
-    // --------------------------------------------------------------------
     // DEFORMATION PAR HEIGHTMAP
-    // --------------------------------------------------------------------
     private void appliquerDeformation_Texture()
     {
         if (p_vertices == null)
@@ -1695,9 +1616,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         appliquerMesh();
     }
 
-    // --------------------------------------------------------------------
     // TP5 : DEFORMATION PAR HEIGHTMAP EN ASYNCHRONE (F4)
-    // --------------------------------------------------------------------
 
     private void lancerDeformationTextureAsync()
     {
@@ -1795,9 +1714,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (p_asyncPixels.IsCreated) p_asyncPixels.Dispose();
     }
 
-    // --------------------------------------------------------------------
     // NORMALE D'UN TRIANGLE
-    // --------------------------------------------------------------------
     private Vector3 calculerNormaleTriangle(
         Chunk chunk,
         int triangleIndex)
@@ -1832,9 +1749,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         return normale.normalized;
     }
 
-    // --------------------------------------------------------------------
     // SURFACE DU TRIANGLE
-    // --------------------------------------------------------------------
     private float calculerSurfaceTriangle(
         Chunk chunk,
         int triangleIndex)
@@ -1858,9 +1773,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         return Vector3.Cross(a, b).magnitude * 0.5f;
     }
 
-    // --------------------------------------------------------------------
     // ANGLE DU TRIANGLE AU NIVEAU DU VERTEX
-    // --------------------------------------------------------------------
     private float calculerAngleAuVertex(
         Chunk chunk,
         int triangleIndex,
@@ -1912,9 +1825,7 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         return Vector3.Angle(a, b);
     }
-    // --------------------------------------------------------------------
-    // CALCUL DE LA NORMALE D'UN VERTEX (version C# sequentielle d'origine)
-    // --------------------------------------------------------------------
+    // CALCUL DE LA NORMALE D'UN VERTEX (version d'origine)
 
     //private void calculerNormaleVertex(
     //    uint num_Vertex)
@@ -1946,9 +1857,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //        Vector3.zero;
 
 
-    //    // ------------------------------------------------------------
-    //    // A - Moyenne simple
-    //    // ------------------------------------------------------------
+    //    // Moyenne simple
 
     //    if (modeNormale == ModeNormale.Basique)
     //    {
@@ -1961,10 +1870,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //        }
     //    }
 
-
-    //    // ------------------------------------------------------------
-    //    // B - Moyenne pondérée par la surface
-    //    // ------------------------------------------------------------
+    //    // Moyenne pondérée par la surface
 
     //    else if (modeNormale == ModeNormale.Surface)
     //    {
@@ -1986,9 +1892,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     //    }
 
 
-    //    // ------------------------------------------------------------
-    //    // C - Moyenne pondérée par l'angle
-    //    // ------------------------------------------------------------
+    //    // Moyenne pondérée par l'angle
 
     //    else if (modeNormale == ModeNormale.Angle)
     //    {
@@ -2100,9 +2004,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         );
     }
 
-    // --------------------------------------------------------------------
     // MESURE DES PERFORMANCES DES 4 JOBS + NORMALES
-    // --------------------------------------------------------------------
 
     private const int repetitionsMesure = 100;
     private const int lotMesure = 64;
@@ -2646,9 +2548,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             "  Gain       : " + gain.ToString("F2") + " x");
     }
 
-    // --------------------------------------------------------------------
     // TP5/TP6 : MESURES COMPLEMENTAIRES
-    // --------------------------------------------------------------------
 
     private bool burstEstActif()
     {
@@ -2786,9 +2686,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             "  Gain               : " + (burst > 0.0 ? (csharp / burst).ToString("F2") : "?") + " x");
     }
 
-    // --------------------------------------------------------------------
     // F6 : LIMITES MEMOIRE / TEST DE CHARGE
-    // --------------------------------------------------------------------
     private void mesurerLimitesMemoire()
     {
         const float MO = 1024f * 1024f;
@@ -2927,7 +2825,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         Debug.Log(
             "\n============================================================\n" +
             "TP5 - COMPARAISON DES 4 TRAITEMENTS\n" +
-            "C# -> Jobs -> Jobs + Burst\n" +
+            "Jobs -> Jobs + Burst\n" +
             "Vertices : " + p_vertices.Length + "\n" +
             "Repetitions : " + repetitionsMesure + "\n" +
             "Lot Jobs : " + lotMesure + "\n" +
@@ -2985,9 +2883,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             "FIN DES MESURES TP5 - 4 TRAITEMENTS\n" +
             "============================================================");
     }
-    // --------------------------------------------------------------------
     // UPDATE
-    // --------------------------------------------------------------------
 
     void Update()
     {
@@ -3001,9 +2897,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         gererDoubleF11();
     }
 
-    // --------------------------------------------------------------------
     // CLAVIER
-    // --------------------------------------------------------------------
 
     private void gererClavier()
     {
@@ -3138,9 +3032,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-    // --------------------------------------------------------------------
     // PICKING
-    // --------------------------------------------------------------------
 
     private void gererPicking()
     {
@@ -3161,9 +3053,6 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         p_pointPickingDisponible = true;
 
-        // Une colline est ajoutee
-        // uniquement lorsque le mode fonction
-        // est sur Collines.
         if (choixModeDeformation ==
             ChoixModeDeformation.Fonction &&
             typeFonction ==
@@ -3179,9 +3068,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-    // --------------------------------------------------------------------
     // CAMERA
-    // --------------------------------------------------------------------
     private void gererCamera()
     {
         if (p_cam == null || Keyboard.current == null)
@@ -3190,10 +3077,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         float deltaTemps = vitesseCamera * Time.deltaTime;
         Vector3 direction = Vector3.zero;
 
-        // ------------------------------------------------------------
-        // CAMERA : ZQSE
-        // Les fleches restent reservees a l'extension des chunks du TP4.
-        // ------------------------------------------------------------
+        // CAMERA : AZQS
         if (Keyboard.current.wKey.isPressed)
             direction += p_cam.transform.forward;
 
@@ -3215,9 +3099,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (direction.sqrMagnitude > 0.001f)
             p_cam.transform.position += direction.normalized * deltaTemps;
 
-        // ------------------------------------------------------------
         // SOURIS DROITE : rotation de la camera.
-        // ------------------------------------------------------------
         if (Mouse.current != null &&
             Mouse.current.middleButton.isPressed)
         {
@@ -3241,9 +3123,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_cam.transform.localEulerAngles = angles;
         }
 
-        // ------------------------------------------------------------
         // R : rotation continue du terrain.
-        // ------------------------------------------------------------
         if (Keyboard.current.rKey.isPressed)
         {
             transform.Rotate(
@@ -3252,9 +3132,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 Space.World);
         }
     }
-    // --------------------------------------------------------------------
     // AFFICHAGE DES NORMALES
-    // --------------------------------------------------------------------
 
     private void gererAffichageNormales()
     {
@@ -3267,8 +3145,6 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (p_vertices == null)
             return;
 
-        // Pour eviter de dessiner plusieurs milliers
-        // de lignes a chaque frame.
         int pas =
             Mathf.Max(
                 1,
@@ -3288,9 +3164,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             Vector3 direction =
                 Vector3.zero;
 
-            // --------------------------------------------------------
             // Mode 0 : normales vertices
-            // --------------------------------------------------------
 
             if (p_modeAffichageNormales == 0)
             {
@@ -3300,10 +3174,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                     );
             }
 
-            // --------------------------------------------------------
-            // Mode 1 : normale d'eclairage
-            // moyenne des normales des 3 vertices
-            // --------------------------------------------------------
+            // Mode 1 : normale d'eclairage moyenne des normales des 3 vertices
 
             else if (p_modeAffichageNormales == 1)
             {
@@ -3311,9 +3182,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                     calculerNormaleEclairage(i);
             }
 
-            // --------------------------------------------------------
             // Mode 2 : normale d'orientation
-            // --------------------------------------------------------
 
             else if (p_modeAffichageNormales == 2)
             {
@@ -3321,10 +3190,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                     calculerNormaleOrientation(i);
             }
 
-            // --------------------------------------------------------
-            // Mode 3 :
-            // orientation + eclairage
-            // --------------------------------------------------------
+            // Mode 3 : orientation + eclairage
 
             else
             {
@@ -3358,9 +3224,8 @@ public class CreationSimpleTerrain : MonoBehaviour
             );
         }
     }
-    // --------------------------------------------------------------------
+
     // NORMALE D'ECLAIRAGE
-    // --------------------------------------------------------------------
     private Vector3 calculerNormaleEclairage(
         int vertex)
     {
@@ -3409,9 +3274,8 @@ public class CreationSimpleTerrain : MonoBehaviour
 
 
     private Vector3 calculerNormaleTriangle(int triangleIndex) => calculerNormaleTriangle(chunkBase, triangleIndex);
-    // --------------------------------------------------------------------
+
     // NORMALE D'ORIENTATION
-    // --------------------------------------------------------------------
     private Vector3 calculerNormaleOrientation(
         int vertex)
     {
@@ -3438,12 +3302,9 @@ public class CreationSimpleTerrain : MonoBehaviour
             normale
         );
     }
-    // --------------------------------------------------------------------
     // GUI
-    // --------------------------------------------------------------------
     private void OnGUI()
     {
-        // FPS toujours visibles (TP5)
         GUI.Label(
             new Rect(10, 5, 200, 20),
             "FPS : " + p_fps.ToString("F0")
@@ -3551,9 +3412,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.EndArea();
     }
 
-    // --------------------------------------------------------------------
     // MEMOIRE
-    // --------------------------------------------------------------------
 
     private long calculerMemoireMesh()
     {
@@ -3582,9 +3441,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         return memoire / 1024;
     }
 
-    // --------------------------------------------------------------------
     // SCULPTURE DU TERRAIN
-    // --------------------------------------------------------------------
 
     private void gererSculptureTerrain()
     {
@@ -3594,14 +3451,10 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (Keyboard.current == null)
             return;
 
-        // TP5 : pas de sculpture pendant un job asynchrone
-        // (p_vertices sera ecrase par le resultat du job).
         if (p_asyncEnCours)
             return;
 
-        // ============================================================
         // MOLETTE
-        // ============================================================
 
         float scrollY =
             Mouse.current.scroll.ReadValue().y;
@@ -3610,9 +3463,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         {
             Debug.Log("MOLETTE = " + scrollY);
 
-            // --------------------------------------------------------
             // SHIFT + MOLETTE = INTENSITE
-            // --------------------------------------------------------
 
             if (Keyboard.current.shiftKey.isPressed)
             {
@@ -3637,9 +3488,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 );
             }
 
-            // --------------------------------------------------------
             // CTRL + MOLETTE = RAYON
-            // --------------------------------------------------------
 
             else if (Keyboard.current.ctrlKey.isPressed)
             {
@@ -3665,9 +3514,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             }
 
 
-            // --------------------------------------------------------
             // ALT + MOLETTE = PATTERN
-            // --------------------------------------------------------
 
             else if (Keyboard.current.altKey.isPressed)
             {
@@ -3704,9 +3551,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             }
         }
 
-        // ============================================================
         // VERIFICATION DU PATTERN
-        // ============================================================
 
         if (patternsDeformation == null ||
             patternsDeformation.Length == 0)
@@ -3727,9 +3572,7 @@ public class CreationSimpleTerrain : MonoBehaviour
                 patternsDeformation.Length - 1;
         }
 
-        // ============================================================
         // CLIC / ESPACE
-        // ============================================================
 
         bool clicGauche =
             Mouse.current.leftButton.isPressed;
@@ -3780,9 +3623,7 @@ public class CreationSimpleTerrain : MonoBehaviour
             }
         }
     }
-    // --------------------------------------------------------------------
     // EXERCICE 2 : CALCUL DES DISTANCES
-    // --------------------------------------------------------------------
     private float calculerDistanceNormalisee(Vector3 vertex, Vector3 centre, out bool dansRayon)
     {
         float dx = vertex.x - centre.x;
@@ -3818,9 +3659,8 @@ public class CreationSimpleTerrain : MonoBehaviour
                 }
         }
     }
-    // --------------------------------------------------------------------
+
     // PATTERN DE DEFORMATION
-    // --------------------------------------------------------------------
     private void appliquerPatternDeformation(Vector3 pointMonde, bool elevation)
     {
         if (p_vertices == null)
@@ -3913,9 +3753,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
     }
 
-    // --------------------------------------------------------------------
     // PREVISUALISATION DE LA DEFORMATION
-    // --------------------------------------------------------------------
     private void previsualiserDeformation(Vector3 pointMonde)
     {
         if (p_chunks.Count == 0)
