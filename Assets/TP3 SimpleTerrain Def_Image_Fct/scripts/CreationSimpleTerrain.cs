@@ -3918,28 +3918,34 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     private void previsualiserDeformation(Vector3 pointMonde)
     {
-        if (p_vertices == null)
+        if (p_chunks.Count == 0)
             return;
 
-        Vector3 centreLocal =
-            transform.InverseTransformPoint(pointMonde);
         p_nombreVoisins = 0;
 
+        // Meme selection de chunks que pour la sculpture
+        List<Chunk> touches = chunkTouches(pointMonde);
 
-        for (int i = 0; i < p_vertices.Length; i++)
+        foreach (Chunk chunk in touches)
         {
-            bool dansRayon;
+            // Centre exprime dans le repere local de CE chunk
+            Vector3 centreLocal = chunk.go.transform.InverseTransformPoint(pointMonde);
 
-            calculerDistanceNormalisee(
-                p_vertices[i],
-                centreLocal,
-                out dansRayon
-            );
-
-            if (dansRayon)
+            for (int i = 0; i < chunk.vertices.Length; i++)
             {
+                bool dansRayon;
+
+                calculerDistanceNormalisee(
+                    chunk.vertices[i],
+                    centreLocal,
+                    out dansRayon
+                );
+
+                if (!dansRayon)
+                    continue;
+
                 Vector3 positionMondeVertex =
-                    transform.TransformPoint(p_vertices[i]);
+                    chunk.go.transform.TransformPoint(chunk.vertices[i]);
 
                 Debug.DrawLine(
                     positionMondeVertex,
