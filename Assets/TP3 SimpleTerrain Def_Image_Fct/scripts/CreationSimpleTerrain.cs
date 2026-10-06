@@ -103,13 +103,14 @@ public struct TextureTerrainJob : IJobParallelFor
     public int hauteurImage;
     public int resolution;
     public float hauteurMax;
+    public float uDebut, vDebut, uEchelle, vEchelle;
     public void Execute(int index)
     {
         int i = index % resolution;
         int j = index / resolution;
 
-        float u = (float)i / (resolution - 1);
-        float v = (float)j / (resolution - 1);
+        float u = uDebut + ((float)i / (resolution - 1)) * uEchelle;
+        float v = vDebut + ((float)j / (resolution - 1)) * vEchelle;
 
         float px = u * (largeurImage - 1);
         float py = v * (hauteurImage - 1);
@@ -468,8 +469,16 @@ public class CreationSimpleTerrain : MonoBehaviour
     // TP5 : traitement asynchrone (F4)
     private bool p_asyncEnCours = false;
     private JobHandle p_handleAsync;
-    private NativeArray<Vector3> p_asyncVertices;
-    private NativeArray<Vector3> p_asyncNormales;
+    //private NativeArray<Vector3> p_asyncVertices;
+    //private NativeArray<Vector3> p_asyncNormales;
+    private class AsyncChunk
+    {
+        public Chunk chunk;
+        public NativeArray<Vector3> p_asyncVertices;
+        public NativeArray<Vector3> p_asyncNormales;
+    }
+    private readonly List<AsyncChunk> p_asyncChunks = new List<AsyncChunk>();
+
     private NativeArray<Color> p_asyncPixels;
     private float p_asyncDebut;
 
@@ -500,6 +509,7 @@ public class CreationSimpleTerrain : MonoBehaviour
     private readonly List<int> p_indicesTmp = new List<int>();
 
     private Chunk chunkBase => p_chunks.TryGetValue(Vector2Int.zero, out Chunk c) ? c : null;
+    private Vector3 decalageChunk(Chunk c) => new Vector3(c.coord.x * dimension, 0f, c.coord.y * dimension);
     private Vector3[] p_vertices => chunkBase?.vertices;
     private Vector3[] p_normals => chunkBase?.normals;
     private Vector2[] p_uv => chunkBase?.uv;
@@ -562,9 +572,8 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     void Start()
     {
-        creerChunk(Vector2Int.zero);
-
         resolution = (ushort)(1 << puissance2Resolution);
+        creerChunk(Vector2Int.zero);
 
         //if (puissance2Resolution >= 6)
         //{
@@ -796,41 +805,66 @@ public class CreationSimpleTerrain : MonoBehaviour
         return somme;
     }
 
-    private void recalculerNormalesChunk(Chunk chunk)
+    private void recalculerNormaleVertex(Chunk chunk, int index_x, int index_z)
     {
         int last = chunk.res - 1;
-        for (int index_z = 0; index_z < chunk.res; index_z++)
+        int i = index_z * chunk.res + index_x;
+        Vector3 somme = sommeNormales(chunk, i);
+        bool bord = (index_x == 0 || index_x == last || index_z == 0 || index_z == last);
+
+        if (bord)
         {
-            for (int index_x = 0; index_x < chunk.res; index_x++)
-            {
-                int i = index_z * chunk.res + index_x;
-                Vector3 somme = sommeNormales(chunk, i);
-                bool bord = (index_x == 0 || index_x == last || index_z == 0 || index_z == last);
-                if (bord)
-                {
-                    trouverJumeaux(chunk, index_x, index_z);
-                    for (int k = 0; k < p_membresTmp.Count; k++)
-                    {
-                        Chunk voisin = p_membresTmp[k];
-                        int indexVoisin = p_indicesTmp[k];
-                        somme += sommeNormales(voisin, indexVoisin);
-                    }
-
-                }
-                Vector3 normale = somme.sqrMagnitude < 0.000001f ? Vector3.up : somme.normalized;
-                chunk.normals[i] = normale;
-
-                if (bord)
-                {
-                    for (int k = 0; k < p_membresTmp.Count; k++)
-                    {
-                        Chunk voisin = p_membresTmp[k];
-                        int indexVoisin = p_indicesTmp[k];
-                        voisin.normals[indexVoisin] = normale;
-                    }
-                }
-            }
+            trouverJumeaux(chunk, index_x, index_z);
+            for (int k = 0; k < p_membresTmp.Count; k++)
+                somme += sommeNormales(p_membresTmp[k], p_indicesTmp[k]);
         }
+
+        Vector3 normale = somme.sqrMagnitude < 0.000001f ? Vector3.up : somme.normalized;
+        chunk.normals[i] = normale;
+
+        if (bord)
+            for (int k = 0; k < p_membresTmp.Count; k++)
+                p_membresTmp[k].normals[p_indicesTmp[k]] = normale;
+    }
+
+    private void recalculerNormalesChunk(Chunk chunk)
+    {
+        for (int z = 0; z < chunk.res; z++)
+            for (int x = 0; x < chunk.res; x++)
+                recalculerNormaleVertex(chunk, x, z);
+    }
+
+    private void recalculerNormalesBords(Chunk chunk)
+    {
+        int last = chunk.res -1 ;
+        for (int k = 0; k < chunk.res; k++)
+        {
+            recalculerNormaleVertex(chunk, k, 0);
+            recalculerNormaleVertex(chunk, k, last);
+            recalculerNormaleVertex(chunk, 0, k);
+            recalculerNormaleVertex(chunk, last, k);
+        }
+    }
+
+    private void normalesParJob(Chunk chunk)
+    {
+        int n = chunk.vertices.Length;
+        NativeArray<Vector3> vN = new NativeArray<Vector3>(chunk.vertices, Allocator.TempJob);
+        NativeArray<Vector3> nN = new NativeArray<Vector3>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+
+        new NormalesVertexJob
+        {
+            vertices = vN,
+            triangles = p_trianglesNative,
+            debut = p_debutVoisinsNative,
+            liste = p_listeVoisinsNative,
+            mode = (int)modeNormale,
+            normales = nN,
+        }.Schedule(n, 64).Complete();
+
+        nN.CopyTo(chunk.normals);
+        vN.Dispose();
+        nN.Dispose();
     }
 
     // --------------------------------------------------------------------
@@ -1454,9 +1488,32 @@ public class CreationSimpleTerrain : MonoBehaviour
                 break;
         }
 
-        recalculerToutesLesNormales();
-        appliquerMesh();
+        finaliserDeformation();
     }
+
+    private void deformerChunks(System.Func<Chunk, NativeArray<Vector3>, JobHandle> planifier)
+    {
+        foreach (Chunk chunk in p_chunks.Values)
+        {
+            Vector3 off = decalageChunk(chunk);
+            int n = chunk.vertices.Length;
+            NativeArray<Vector3> nat = new NativeArray<Vector3>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 v = chunk.vertices[i];
+                nat[i] = new Vector3(v.x + off.x, v.y, v.z + off.z);
+            }
+
+            planifier(chunk, nat).Complete();
+
+            for (int i = 0; i < n; i++)
+                chunk.vertices[i].y = nat[i].y;
+
+            nat.Dispose();
+        }
+    }
+
 
     // --------------------------------------------------------------------
     // SINUSOIDE
@@ -1464,23 +1521,31 @@ public class CreationSimpleTerrain : MonoBehaviour
 
     private void appliquerSinusoide()
     {
-        if (p_vertices == null || p_vertices.Length == 0)
-            return;
+        //if (p_vertices == null || p_vertices.Length == 0)
+        //    return;
 
-        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+        //NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        SinusoideTerrainJob job = new SinusoideTerrainJob
+        //SinusoideTerrainJob job = new SinusoideTerrainJob
+        //{
+        //    vertices = verticesNative,
+        //    frequence = 2f * Mathf.PI / dimension,
+        //    hauteur = hauteurSinusoide
+        //};
+
+        //JobHandle handle = job.Schedule(verticesNative.Length, 64);
+        //handle.Complete();
+
+        //verticesNative.CopyTo(p_vertices);
+        //verticesNative.Dispose();
+
+        float f = 2f * Mathf.PI / dimension;
+        deformerChunks((c, nat) => new SinusoideTerrainJob
         {
-            vertices = verticesNative,
-            frequence = 2f * Mathf.PI / dimension,
+            vertices = nat,
+            frequence = f,
             hauteur = hauteurSinusoide
-        };
-
-        JobHandle handle = job.Schedule(verticesNative.Length, 64);
-        handle.Complete();
-
-        verticesNative.CopyTo(p_vertices);
-        verticesNative.Dispose();
+        }.Schedule(nat.Length, 64));
     }
 
     // --------------------------------------------------------------------
@@ -1491,27 +1556,37 @@ public class CreationSimpleTerrain : MonoBehaviour
         float centreX,
         float centreZ)
     {
-        if (p_vertices == null || p_vertices.Length == 0)
-            return;
+        //if (p_vertices == null || p_vertices.Length == 0)
+        //    return;
+
+        //float sigma = Mathf.Max(0.01f, largeurColline);
+
+        //NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+
+        //CollineTerrainJob job = new CollineTerrainJob
+        //{
+        //    vertices = verticesNative,
+        //    centreX = centreX,
+        //    centreZ = centreZ,
+        //    sigma = sigma,
+        //    hauteur = hauteurColline
+        //};
+
+        //JobHandle handle = job.Schedule(verticesNative.Length, 64);
+        //handle.Complete();
+
+        //verticesNative.CopyTo(p_vertices);
+        //verticesNative.Dispose();
 
         float sigma = Mathf.Max(0.01f, largeurColline);
-
-        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
-
-        CollineTerrainJob job = new CollineTerrainJob
+        deformerChunks((c, nat) => new CollineTerrainJob
         {
-            vertices = verticesNative,
+            vertices = nat,
             centreX = centreX,
             centreZ = centreZ,
             sigma = sigma,
             hauteur = hauteurColline
-        };
-
-        JobHandle handle = job.Schedule(verticesNative.Length, 64);
-        handle.Complete();
-
-        verticesNative.CopyTo(p_vertices);
-        verticesNative.Dispose();
+        }.Schedule(nat.Length, 64));
     }
 
     // --------------------------------------------------------------------
@@ -1519,39 +1594,59 @@ public class CreationSimpleTerrain : MonoBehaviour
     // --------------------------------------------------------------------
     private void appliquerPerlin()
     {
-        if (p_vertices == null || p_vertices.Length == 0)
-            return;
+        //if (p_vertices == null || p_vertices.Length == 0)
+        //    return;
 
-        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+        //NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        if (perlinBurst)
+        //if (perlinBurst)
+        //{
+        //    PerlinTerrainBurstJob jobBurst = new PerlinTerrainBurstJob
+        //    {
+        //        vertices = verticesNative,
+        //        echelle = echellePerlin,
+        //        seed = p_seedPerlin,
+        //        hauteur = hauteurPerlin
+        //    };
+
+        //    jobBurst.Schedule(verticesNative.Length, 64).Complete();
+        //}
+        //else
+        //{
+        //    PerlinTerrainJob job = new PerlinTerrainJob
+        //    {
+        //        vertices = verticesNative,
+        //        echelle = echellePerlin,
+        //        seed = p_seedPerlin,
+        //        hauteur = hauteurPerlin
+        //    };
+
+        //    JobHandle handle = job.Schedule(verticesNative.Length, 64);
+        //    handle.Complete();
+        //}
+
+        //verticesNative.CopyTo(p_vertices);
+        //verticesNative.Dispose();
+
+        deformerChunks((c, nat) =>
         {
-            PerlinTerrainBurstJob jobBurst = new PerlinTerrainBurstJob
+            if (perlinBurst)
+                return new PerlinTerrainBurstJob
+                {
+                    vertices = nat,
+                    echelle = echellePerlin,
+                    seed = p_seedPerlin,
+                    hauteur = hauteurPerlin
+                }.Schedule(nat.Length, 64);
+
+            return new PerlinTerrainJob
             {
-                vertices = verticesNative,
+                vertices = nat,
                 echelle = echellePerlin,
                 seed = p_seedPerlin,
                 hauteur = hauteurPerlin
-            };
-
-            jobBurst.Schedule(verticesNative.Length, 64).Complete();
-        }
-        else
-        {
-            PerlinTerrainJob job = new PerlinTerrainJob
-            {
-                vertices = verticesNative,
-                echelle = echellePerlin,
-                seed = p_seedPerlin,
-                hauteur = hauteurPerlin
-            };
-
-            JobHandle handle = job.Schedule(verticesNative.Length, 64);
-            handle.Complete();
-        }
-
-        verticesNative.CopyTo(p_vertices);
-        verticesNative.Dispose();
+            }.Schedule(nat.Length, 64);
+        });
     }
 
     // --------------------------------------------------------------------
@@ -1560,6 +1655,9 @@ public class CreationSimpleTerrain : MonoBehaviour
     private void appliquerDeformation_Texture()
     {
         if (p_vertices == null)
+            return;
+
+        if (p_chunks.Count == 0) 
             return;
 
         if (textures == null || textures.Count == 0)
@@ -1588,29 +1686,37 @@ public class CreationSimpleTerrain : MonoBehaviour
             return;
         }
 
-        NativeArray<Color> pixelsNative = new NativeArray<Color>(pixels, Allocator.TempJob);
-        NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+        //NativeArray<Vector3> verticesNative = new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        TextureTerrainJob job = new TextureTerrainJob
+        int largeur = gridMax.x - gridMin.x + 1;
+        int hauteur = gridMax.y - gridMin.y + 1;
+        NativeArray<Color> pixelsNative = new NativeArray<Color>(pixels, Allocator.TempJob);
+
+        deformerChunks((c, nat) => new TextureTerrainJob
         {
             pixels = pixelsNative,
-            vertices = verticesNative,
+            vertices = nat,
             largeurImage = texture.width,
             hauteurImage = texture.height,
-            resolution = resolution,
-            hauteurMax = hauteurTexture
-        };
+            resolution = c.res,
+            hauteurMax = hauteurTexture,
+            uDebut = (c.coord.x - gridMin.x) / (float)largeur,
+            uEchelle = 1f / largeur,
+            vDebut = (c.coord.y - gridMin.y) / (float)hauteur,
+            vEchelle = 1f / hauteur
+        }.Schedule(nat.Length, 16));
 
-        JobHandle handle = job.Schedule(verticesNative.Length, 16);
-        handle.Complete();
+        //JobHandle handle = job.Schedule(verticesNative.Length, 16);
+        //handle.Complete();
 
-        verticesNative.CopyTo(p_vertices);
+        //verticesNative.CopyTo(p_vertices);
 
-        verticesNative.Dispose();
+        //verticesNative.Dispose();
         pixelsNative.Dispose();
 
-        recalculerToutesLesNormales();
-        appliquerMesh();
+        //recalculerToutesLesNormales();
+        //appliquerMesh();
+        finaliserDeformation();
     }
 
     // --------------------------------------------------------------------
@@ -1648,33 +1754,73 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         p_asyncPixels = new NativeArray<Color>(pixels, Allocator.Persistent);
-        p_asyncVertices = new NativeArray<Vector3>(p_vertices, Allocator.Persistent);
-        p_asyncNormales = new NativeArray<Vector3>(p_vertices.Length, Allocator.Persistent);
+        //p_asyncVertices = new NativeArray<Vector3>(p_vertices, Allocator.Persistent);
+        //p_asyncNormales = new NativeArray<Vector3>(p_vertices.Length, Allocator.Persistent);
+        int largeur = gridMax.x - gridMin.x + 1;
+        int hauteur = gridMax.y - gridMin.y + 1;
 
-        TextureTerrainJob jobTexture = new TextureTerrainJob
+        NativeList<JobHandle> handles = new NativeList<JobHandle>(Allocator.Temp);
+        p_asyncChunks.Clear();
+
+        foreach (Chunk chunk in p_chunks.Values)
         {
-            pixels = p_asyncPixels,
-            vertices = p_asyncVertices,
-            largeurImage = texture.width,
-            hauteurImage = texture.height,
-            resolution = resolution,
-            hauteurMax = hauteurTexture
-        };
+            AsyncChunk ac = new AsyncChunk { chunk = chunk };
+            int n = chunk.vertices.Length;
+            ac.p_asyncVertices = new NativeArray<Vector3>(chunk.vertices, Allocator.Persistent);
+            ac.p_asyncNormales = new NativeArray<Vector3>(n, Allocator.Persistent);
+            JobHandle h1 = new TextureTerrainJob()
+            {
+                pixels = p_asyncPixels,
+                vertices = ac.p_asyncVertices,
+                largeurImage = texture.width,
+                hauteurImage = texture.height,
+                resolution = chunk.res,
+                hauteurMax = hauteurTexture,
+                uDebut = (chunk.coord.x - gridMin.x) / (float)largeur,
+                uEchelle = 1f / largeur,
+                vDebut = (chunk.coord.y - gridMin.y) / (float)hauteur,
+                vEchelle = 1f / hauteur
+            }.Schedule(n, 64);
 
-        JobHandle h1 = jobTexture.Schedule(p_asyncVertices.Length, 64);
+            JobHandle h2 = new NormalesVertexJob
+            {
+                vertices = ac.p_asyncVertices,
+                triangles = p_trianglesNative,
+                debut = p_debutVoisinsNative,
+                liste = p_listeVoisinsNative,
+                mode = (int)modeNormale,
+                normales = ac.p_asyncNormales
+            }.Schedule(n, 64, h1);
 
-        NormalesVertexJob jobNormales = new NormalesVertexJob
-        {
-            vertices = p_asyncVertices,
-            triangles = p_trianglesNative,
-            debut = p_debutVoisinsNative,
-            liste = p_listeVoisinsNative,
-            mode = (int)modeNormale,
-            normales = p_asyncNormales
-        };
+            handles.Add(h2);
+            p_asyncChunks.Add(ac);
+        }
+
+        //TextureTerrainJob jobTexture = new TextureTerrainJob
+        //{
+        //    pixels = p_asyncPixels,
+        //    vertices = p_asyncVertices,
+        //    largeurImage = texture.width,
+        //    hauteurImage = texture.height,
+        //    resolution = resolution,
+        //    hauteurMax = hauteurTexture
+        //};
+
+        //JobHandle h1 = jobTexture.Schedule(p_asyncVertices.Length, 64);
+
+        //NormalesVertexJob jobNormales = new NormalesVertexJob
+        //{
+        //    vertices = p_asyncVertices,
+        //    triangles = p_trianglesNative,
+        //    debut = p_debutVoisinsNative,
+        //    liste = p_listeVoisinsNative,
+        //    mode = (int)modeNormale,
+        //    normales = p_asyncNormales
+        //};
 
         // dependance : les normales attendent la fin du job texture
-        p_handleAsync = jobNormales.Schedule(p_asyncVertices.Length, 64, h1);
+        p_handleAsync = JobHandle.CombineDependencies(handles.AsArray());
+        handles.Dispose();
         JobHandle.ScheduleBatchedJobs();
 
         p_asyncDebut = Time.realtimeSinceStartup;
@@ -1692,14 +1838,25 @@ public class CreationSimpleTerrain : MonoBehaviour
         System.Diagnostics.Stopwatch chrono = System.Diagnostics.Stopwatch.StartNew();
 
         p_handleAsync.Complete();                 // instantane : le job est deja fini
-        p_asyncVertices.CopyTo(p_vertices);
-        p_asyncNormales.CopyTo(p_normals);
+        //p_asyncVertices.CopyTo(p_vertices);
+        //p_asyncNormales.CopyTo(p_normals);
+        foreach (AsyncChunk ac in p_asyncChunks)
+        {
+            ac.p_asyncVertices.CopyTo(ac.chunk.vertices);
+            ac.p_asyncNormales.CopyTo(ac.chunk.normals);
+        }
         libererAsync();
         p_asyncEnCours = false;
 
+        // Normales de bord : les jobs n'ont vu qu'un chunk a la fois
+        synchroniserJumeaux(new List<Chunk>(p_chunks.Values));
+        if (p_chunks.Count > 1)
+            foreach (Chunk chunk in p_chunks.Values)
+                recalculerNormalesBords(chunk);
+
         appliquerMesh();                          // upload mesh + collider (main thread)
 
-        chrono.Stop();
+        //chrono.Stop();
         Debug.Log("Async termine : " +
                   ((Time.realtimeSinceStartup - p_asyncDebut) * 1000f).ToString("F0") +
                   " ms de bout en bout (sur plusieurs frames), " +
@@ -1708,8 +1865,16 @@ public class CreationSimpleTerrain : MonoBehaviour
     }
     private void libererAsync()
     {
-        if (p_asyncVertices.IsCreated) p_asyncVertices.Dispose();
-        if (p_asyncNormales.IsCreated) p_asyncNormales.Dispose();
+        foreach (AsyncChunk ac in p_asyncChunks)
+        {
+            if (ac.p_asyncVertices.IsCreated)
+                ac.p_asyncVertices.Dispose();
+            if (ac.p_asyncNormales.IsCreated)
+                ac.p_asyncNormales.Dispose();
+        }
+        p_asyncChunks.Clear();
+        //if (p_asyncVertices.IsCreated) p_asyncVertices.Dispose();
+        //if (p_asyncNormales.IsCreated) p_asyncNormales.Dispose();
         if (p_asyncPixels.IsCreated) p_asyncPixels.Dispose();
     }
 
@@ -1960,35 +2125,51 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         if (!utiliserJobNormales || !p_voisinsNativesPrets)
         {
-            recalculerNormalesChunk(chunkBase);
+            foreach(Chunk chunk in p_chunks.Values)
+                recalculerNormalesChunk(chunk);
             return;
         }
 
-        NativeArray<Vector3> verticesNative =
-            new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
+        // Ajouter normal par job
+        foreach(Chunk chunk in p_chunks.Values)
+            normalesParJob(chunk);
 
-        NativeArray<Vector3> normalesNative =
-            new NativeArray<Vector3>(
-                p_vertices.Length,
-                Allocator.TempJob,
-                NativeArrayOptions.UninitializedMemory);
+        if (p_chunks.Count > 1)
+            foreach(Chunk chunk in p_chunks.Values)
+                recalculerNormalesBords(chunk);
 
-        NormalesVertexJob job = new NormalesVertexJob
-        {
-            vertices = verticesNative,
-            triangles = p_trianglesNative,
-            debut = p_debutVoisinsNative,
-            liste = p_listeVoisinsNative,
-            mode = (int)modeNormale,
-            normales = normalesNative
-        };
+        //NativeArray<Vector3> verticesNative =
+        //    new NativeArray<Vector3>(p_vertices, Allocator.TempJob);
 
-        job.Schedule(p_vertices.Length, 64).Complete();
+        //NativeArray<Vector3> normalesNative =
+        //    new NativeArray<Vector3>(
+        //        p_vertices.Length,
+        //        Allocator.TempJob,
+        //        NativeArrayOptions.UninitializedMemory);
 
-        normalesNative.CopyTo(p_normals);
+        //NormalesVertexJob job = new NormalesVertexJob
+        //{
+        //    vertices = verticesNative,
+        //    triangles = p_trianglesNative,
+        //    debut = p_debutVoisinsNative,
+        //    liste = p_listeVoisinsNative,
+        //    mode = (int)modeNormale,
+        //    normales = normalesNative
+        //};
 
-        verticesNative.Dispose();
-        normalesNative.Dispose();
+        //job.Schedule(p_vertices.Length, 64).Complete();
+
+        //normalesNative.CopyTo(p_normals);
+
+        //verticesNative.Dispose();
+        //normalesNative.Dispose();
+    }
+
+    private void finaliserDeformation()
+    {
+        synchroniserJumeaux(new List<Chunk>(p_chunks.Values));
+        recalculerToutesLesNormales();
+        appliquerMesh();
     }
 
     private bool effectuerPicking(
@@ -2340,7 +2521,11 @@ public class CreationSimpleTerrain : MonoBehaviour
                 largeurImage = texture.width,
                 hauteurImage = texture.height,
                 resolution = resolution,
-                hauteurMax = hauteurTexture
+                hauteurMax = hauteurTexture,
+                uDebut = 0f,
+                uEchelle = 1f,
+                vDebut = 0f,
+                vEchelle = 1f,
             };
 
             JobHandle handle = job.Schedule(verticesNative.Length, lotMesure);
@@ -2766,45 +2951,30 @@ public class CreationSimpleTerrain : MonoBehaviour
             p_afficherAide = !p_afficherAide;
 
         // F2/F3 : fonctions / heightmaps
-        bool f2 = Keyboard.current.f2Key.wasPressedThisFrame;
-        bool f3 = Keyboard.current.f3Key.wasPressedThisFrame;
+        if (Keyboard.current.f2Key.wasPressedThisFrame && !p_asyncEnCours)
+        {
+            choixModeDeformation = ChoixModeDeformation.Fonction;
+            typeFonction = (TypeFonction)(((int)typeFonction + 1) % 3);
+            appliquerDeformation_Fonction();
+        }
 
-        if ((f2 || f3) && p_chunks.Count > 1)
+        if (Keyboard.current.f3Key.wasPressedThisFrame && !p_asyncEnCours)
         {
-            Debug.LogWarning("Fonctions / HeightMaps réservées au terrain non étendu.");
+            choixModeDeformation = ChoixModeDeformation.Texture;
+            if (textures != null && textures.Count > 0)
+                numTexture = (numTexture + 1) % textures.Count;
+            appliquerDeformation_Texture();
         }
-        else
-        {
-            if (f2)
-            {
-                choixModeDeformation = ChoixModeDeformation.Fonction;
-                typeFonction = (TypeFonction)(((int)typeFonction + 1) % 3);
-                appliquerDeformation_Fonction();
-            }
-            if (f3)
-            {
-                choixModeDeformation = ChoixModeDeformation.Texture;
-                if (textures != null && textures.Count > 0)
-                    numTexture = (numTexture + 1) % textures.Count;
-                appliquerDeformation_Texture();
-            }
-        }
-        
+
 
         // F4 : HeightMap asynchrone
         if (Keyboard.current.f4Key.wasPressedThisFrame && !p_asyncEnCours)
         {
-            if (p_chunks.Count > 1)
-                Debug.LogWarning("Le traitement asynchrone est reserve au terrain non etendu.");
-            else
-            {
-                choixModeDeformation = ChoixModeDeformation.Texture;
-
-                if (textures != null && textures.Count > 0)
-                    numTexture = (numTexture + 1) % textures.Count;
-
-                lancerDeformationTextureAsync();
-            }
+            choixModeDeformation = ChoixModeDeformation.Texture;
+            if (textures != null && textures.Count > 0)
+                numTexture = (numTexture + 1) % textures.Count;
+            lancerDeformationTextureAsync();
+            
         }
 
         // F5 : mesures des 4 traitements
@@ -2845,7 +3015,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         }
 
         // Fleches : extension du terrain
-        if (Keyboard.current.upArrowKey.wasPressedThisFrame)
+        if (!p_asyncEnCours)
+        {
+            if (Keyboard.current.upArrowKey.wasPressedThisFrame)
             etendreTerrain(Vector2Int.up);
 
         if (Keyboard.current.downArrowKey.wasPressedThisFrame)
@@ -2854,8 +3026,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (Keyboard.current.leftArrowKey.wasPressedThisFrame)
             etendreTerrain(Vector2Int.left);
 
-        if (Keyboard.current.rightArrowKey.wasPressedThisFrame)
-            etendreTerrain(Vector2Int.right);
+            if (Keyboard.current.rightArrowKey.wasPressedThisFrame)
+                etendreTerrain(Vector2Int.right);
+        }
 
         // C : Surlugnage des chunks
         if(Keyboard.current.cKey.wasPressedThisFrame)
@@ -3015,133 +3188,156 @@ public class CreationSimpleTerrain : MonoBehaviour
         p_tempsAffichageNormales -=
             Time.deltaTime;
 
-        if (p_vertices == null)
-            return;
-
-        // Pour eviter de dessiner plusieurs milliers
-        // de lignes a chaque frame.
-        int pas =
-            Mathf.Max(
-                1,
-                p_vertices.Length / 1000
-            );
-
-        for (int i = 0;
-             i < p_vertices.Length;
-             i += pas)
+        foreach (Chunk chunk in p_chunks.Values)
         {
-            Vector3 origine =
-                transform.TransformPoint(
-                    p_vertices[i]
-                );
+            Transform t = chunk.go.transform;
+            int pas = Mathf.Max(1, chunk.vertices.Length / 1000);
 
-
-            Vector3 direction =
-                Vector3.zero;
-
-            // --------------------------------------------------------
-            // Mode 0 : normales vertices
-            // --------------------------------------------------------
-
-            if (p_modeAffichageNormales == 0)
+            for (int i = 0;
+             i < chunk.vertices.Length;
+             i += pas)
             {
-                direction =
-                    transform.TransformDirection(
-                        p_normals[i]
-                    );
+                Vector3 origine = t.TransformPoint(chunk.vertices[i]);
+
+                if (p_modeAffichageNormales == 3)
+                {
+                    Debug.DrawLine(origine, origine + calculerNormaleEclairage(chunk, i) * 2f, Color.green);
+                    Debug.DrawLine(origine, origine + calculerNormaleOrientation(chunk, i) * 2f, Color.red);
+                    continue;
+                }
+
+                Vector3 direction =
+                    p_modeAffichageNormales == 0 ? t.TransformDirection(chunk.normals[i]) :
+                    p_modeAffichageNormales == 1 ? calculerNormaleEclairage(chunk, i) :
+                                               calculerNormaleOrientation(chunk, i);
+                Debug.DrawLine(origine,origine+direction*2f, Color.yellow);
             }
-
-            // --------------------------------------------------------
-            // Mode 1 : normale d'eclairage
-            // moyenne des normales des 3 vertices
-            // --------------------------------------------------------
-
-            else if (p_modeAffichageNormales == 1)
-            {
-                direction =
-                    calculerNormaleEclairage(i);
-            }
-
-            // --------------------------------------------------------
-            // Mode 2 : normale d'orientation
-            // --------------------------------------------------------
-
-            else if (p_modeAffichageNormales == 2)
-            {
-                direction =
-                    calculerNormaleOrientation(i);
-            }
-
-            // --------------------------------------------------------
-            // Mode 3 :
-            // orientation + eclairage
-            // --------------------------------------------------------
-
-            else
-            {
-                Vector3 normaleEclairage =
-                    calculerNormaleEclairage(i);
-
-                Vector3 normaleOrientation =
-                    calculerNormaleOrientation(i);
-
-                Debug.DrawLine(
-                    origine,
-                    origine +
-                    normaleEclairage * 2f,
-                    Color.green
-                );
-
-                Debug.DrawLine(
-                    origine,
-                    origine +
-                    normaleOrientation * 2f,
-                    Color.red
-                );
-
-                continue;
-            }
-            Debug.DrawLine(
-                origine,
-                origine +
-                direction * 2f,
-                Color.yellow
-            );
         }
+
+        //if (p_vertices == null)
+        //    return;
+
+        //// Pour eviter de dessiner plusieurs milliers
+        //// de lignes a chaque frame.
+
+
+        //for (int i = 0;
+        //     i < p_vertices.Length;
+        //     i += pas)
+        //{
+        //    Vector3 origine =
+        //        transform.TransformPoint(
+        //            p_vertices[i]
+        //        );
+
+
+        //    Vector3 direction =
+        //        Vector3.zero;
+
+        //    // --------------------------------------------------------
+        //    // Mode 0 : normales vertices
+        //    // --------------------------------------------------------
+
+        //    if (p_modeAffichageNormales == 0)
+        //    {
+        //        direction =
+        //            transform.TransformDirection(
+        //                p_normals[i]
+        //            );
+        //    }
+
+        //    // --------------------------------------------------------
+        //    // Mode 1 : normale d'eclairage
+        //    // moyenne des normales des 3 vertices
+        //    // --------------------------------------------------------
+
+        //    else if (p_modeAffichageNormales == 1)
+        //    {
+        //        direction =
+        //            calculerNormaleEclairage(i);
+        //    }
+
+        //    // --------------------------------------------------------
+        //    // Mode 2 : normale d'orientation
+        //    // --------------------------------------------------------
+
+        //    else if (p_modeAffichageNormales == 2)
+        //    {
+        //        direction =
+        //            calculerNormaleOrientation(i);
+        //    }
+
+        //    // --------------------------------------------------------
+        //    // Mode 3 :
+        //    // orientation + eclairage
+        //    // --------------------------------------------------------
+
+        //    else
+        //    {
+        //        Vector3 normaleEclairage =
+        //            calculerNormaleEclairage(i);
+
+        //        Vector3 normaleOrientation =
+        //            calculerNormaleOrientation(i);
+
+        //        Debug.DrawLine(
+        //            origine,
+        //            origine +
+        //            normaleEclairage * 2f,
+        //            Color.green
+        //        );
+
+        //        Debug.DrawLine(
+        //            origine,
+        //            origine +
+        //            normaleOrientation * 2f,
+        //            Color.red
+        //        );
+
+        //        continue;
+        //    }
+        //    Debug.DrawLine(
+        //        origine,
+        //        origine +
+        //        direction * 2f,
+        //        Color.yellow
+        //    );
+        //}
     }
     // --------------------------------------------------------------------
     // NORMALE D'ECLAIRAGE
     // --------------------------------------------------------------------
     private Vector3 calculerNormaleEclairage(
+        Chunk chunk,
         int vertex)
     {
-        List<int> triangles =
-            p_trianglesParVertex[vertex];
+        //List<int> triangles =
+        //    p_trianglesParVertex[vertex];
 
         Vector3 resultat =
             Vector3.zero;
 
         int nombre = 0;
 
-        foreach (int triangleIndex in triangles)
+        foreach (int triangleIndex in chunk.trianglesParVertex[vertex])
         {
             int a =
-                p_triangles[triangleIndex];
+                chunk.triangles[triangleIndex];
 
             int b =
-                p_triangles[triangleIndex + 1];
+                chunk.triangles[triangleIndex + 1];
 
             int c =
-                p_triangles[triangleIndex + 2];
+                chunk.triangles[triangleIndex + 2];
 
             Vector3 normaleA =
-                p_normals[a];
+                chunk.normals[a];
 
             Vector3 normaleB =
-                p_normals[b];
+                chunk.normals[b];
 
             Vector3 normaleC =
-                p_normals[c];
+                chunk.normals[c];
 
 
             resultat +=
@@ -3153,7 +3349,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (nombre == 0)
             return Vector3.up;
 
-        return transform.TransformDirection(
+        return chunk.go.transform.TransformDirection(
             (resultat / nombre).normalized
         );
     }
@@ -3164,15 +3360,16 @@ public class CreationSimpleTerrain : MonoBehaviour
     // NORMALE D'ORIENTATION
     // --------------------------------------------------------------------
     private Vector3 calculerNormaleOrientation(
+        Chunk chunk,
         int vertex)
     {
         List<int> triangles =
-            p_trianglesParVertex[vertex];
+            chunk.trianglesParVertex[vertex];
 
 
         if (triangles == null ||
             triangles.Count == 0)
-            return transform.up;
+            return chunk.go.transform.up;
 
 
         int triangleIndex =
@@ -3181,11 +3378,12 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         Vector3 normale =
             calculerNormaleTriangle(
+                chunk,
                 triangleIndex
             );
 
 
-        return transform.TransformDirection(
+        return chunk.go.transform.TransformDirection(
             normale
         );
     }
@@ -3244,6 +3442,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         GUILayout.Label("Z : Changer de distance (Exercice 2)");
         GUILayout.Label("ZQSD : Deplacer la camera   |   E / A : Monter / Descendre");
         GUILayout.Label("O/K/L/M : Tourner la camera   |   R : Faire tourner le terrain");
+        GUILayout.Label("Flèches directionnelles : Étendre le terrain   |   C : Surligner les chunks");
 
         GUILayout.Space(10);
         GUILayout.Label("SCULPTURE INTERACTIVE (EXERCICE 1)");
@@ -3274,11 +3473,13 @@ public class CreationSimpleTerrain : MonoBehaviour
                     break;
                 }
             }
-            GUILayout.Space(10);
             GUILayout.Label(status);
         }
 
         // Afficher le nombre de chunks total et dimention du terrain
+        GUILayout.Space(10);
+        GUILayout.Label("PARAMETRES CHUNKS :");
+
         long totVertices = 0;
         long totTriangles = 0;
         long totMemory = 0;
@@ -3292,7 +3493,6 @@ public class CreationSimpleTerrain : MonoBehaviour
         int width = gridMax.x - gridMin.x + 1;
         int height = gridMax.y - gridMin.y + 1;
 
-        GUILayout.Space(10);
         GUILayout.Label($"Chunks : {p_chunks.Count}, Total Memory : {totMemory} Ko, Total Vertices : {totVertices}, Total Triangles : {totTriangles} (Dimensions : {width} x {height})");
 
         GUILayout.EndArea();
@@ -3651,34 +3851,47 @@ public class CreationSimpleTerrain : MonoBehaviour
         if (p_vertices == null)
             return;
 
-        Vector3 centreLocal =
-            transform.InverseTransformPoint(pointMonde);
+        
         p_nombreVoisins = 0;
 
-
-        for (int i = 0; i < p_vertices.Length; i++)
+        foreach (Chunk chunk in chunkTouches(pointMonde))
         {
-            bool dansRayon;
-
-            calculerDistanceNormalisee(
-                p_vertices[i],
-                centreLocal,
-                out dansRayon
-            );
-
-            if (dansRayon)
+            Vector3 centreLocal =
+            chunk.go.transform.InverseTransformPoint(pointMonde);
+            for (int i = 0; i < chunk.vertices.Length; i++)
             {
-                Vector3 positionMondeVertex =
-                    transform.TransformPoint(p_vertices[i]);
+                calculerDistanceNormalisee(chunk.vertices[i], centreLocal, out bool dansRayon);
+                if (!dansRayon) 
+                    continue;
 
-                Debug.DrawLine(
-                    positionMondeVertex,
-                    positionMondeVertex + Vector3.up * 1f,
-                    Color.magenta
-                );
-
+                Vector3 p = chunk.go.transform.TransformPoint(chunk.vertices[i]);
+                Debug.DrawLine(p, p + Vector3.up, Color.magenta);
                 p_nombreVoisins++;
             }
         }
+        //for (int i = 0; i < p_vertices.Length; i++)
+        //{
+        //    bool dansRayon;
+
+        //    calculerDistanceNormalisee(
+        //        p_vertices[i],
+        //        centreLocal,
+        //        out dansRayon
+        //    );
+
+        //    if (dansRayon)
+        //    {
+        //        Vector3 positionMondeVertex =
+        //            transform.TransformPoint(p_vertices[i]);
+
+        //        Debug.DrawLine(
+        //            positionMondeVertex,
+        //            positionMondeVertex + Vector3.up * 1f,
+        //            Color.magenta
+        //        );
+
+        //        p_nombreVoisins++;
+        //    }
+        //}
     }
 }

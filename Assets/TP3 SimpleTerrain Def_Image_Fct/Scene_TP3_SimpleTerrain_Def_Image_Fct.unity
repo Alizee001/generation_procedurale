@@ -224,7 +224,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CreationSimpleTerrain
   dimension: 10
-  puissance2Resolution: 4
+  puissance2Resolution: 6
   CentrerPivot: 1
   resolution: 1
   choixModeDeformation: 1
@@ -242,6 +242,8 @@ MonoBehaviour:
   hauteurPerlin: 10
   echellePerlin: 0.05
   hauteurTexture: 20
+  utiliserJobNormales: 1
+  perlinBurst: 0
   modeNormale: 0
   vitesseCamera: 15
   vitesseRotationCamera: 80
