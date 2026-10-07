@@ -7,6 +7,8 @@ using Unity.Collections;
 using Unity.Jobs;
 using System.Collections;
 using System.Runtime.CompilerServices;
+using System.Text;
+using UnityEngine.UI;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -532,6 +534,14 @@ public class CreationSimpleTerrain : MonoBehaviour
     // F1
     private bool p_afficherAide = false;
 
+    // UI (Canvas construit par script)
+    private GameObject p_panneauAide;
+    private Text p_texteFps, p_texteGauche, p_texteDroite;
+    private float p_prochaineMajUI;
+    private readonly StringBuilder p_sb = new StringBuilder(2048);
+    private readonly List<string> p_derniersResultats = new List<string>();
+    private bool p_burstActif;
+
     // Pour le Perlin.
     private float p_seedPerlin;
 
@@ -641,6 +651,9 @@ public class CreationSimpleTerrain : MonoBehaviour
         creerChunk(Vector2Int.zero);
 
         resolution = (ushort)(1 << puissance2Resolution);
+
+        creerUI();
+        p_burstActif = burstEstActif();
 
         //if (puissance2Resolution >= 6)
         //{
@@ -2801,16 +2814,20 @@ public class CreationSimpleTerrain : MonoBehaviour
         double tempsJobs,
         double tempsJobsBurst)
     {
+        string gainJobs = tempsJobs > 0.0 ? (tempsSequentiel / tempsJobs).ToString("F2") + " x" : "n/a";
+        string gainBurst = tempsJobsBurst > 0.0 ? (tempsSequentiel / tempsJobsBurst).ToString("F2") + " x" : "n/a";
+
         Debug.Log(
             "\n--- " + nom + " ---\n" +
             "C# sequentiel : " + tempsSequentiel.ToString("F3") + " ms / repetition\n" +
-            "Jobs seul      : " + tempsJobs.ToString("F3") + " ms / repetition\n" +
-            "Jobs + Burst   : " + tempsJobsBurst.ToString("F3") + " ms / repetition\n" +
-            "Gain Jobs      : " +
-                (tempsJobs > 0.0 ? (tempsSequentiel / tempsJobs).ToString("F2") + " x" : "n/a") + "\n" +
-            "Gain Burst     : " +
-                (tempsJobsBurst > 0.0 ? (tempsSequentiel / tempsJobsBurst).ToString("F2") + " x" : "n/a") +
-            "\n");
+            "Jobs seul     : " + tempsJobs.ToString("F3") + " ms / repetition\n" +
+            "Jobs + Burst  : " + tempsJobsBurst.ToString("F3") + " ms / repetition\n" +
+            "Gain Jobs     : " + gainJobs + "\n" +
+            "Gain Burst    : " + gainBurst + "\n");
+
+        p_derniersResultats.Add(nom + " : " + tempsSequentiel.ToString("F2") + " / " + tempsJobs.ToString("F2") + " / " + tempsJobsBurst.ToString("F2") + " ms");
+        if (p_derniersResultats.Count > 4)
+            p_derniersResultats.RemoveAt(0);
     }
 
     private void mesurerPerformances4Jobs()
@@ -2895,6 +2912,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         gererSculptureTerrain();
         gererAffichageNormales();
         gererDoubleF11();
+        mettreAJourUI();
     }
 
     // CLAVIER
@@ -2905,7 +2923,11 @@ public class CreationSimpleTerrain : MonoBehaviour
             return;
 
         if (Keyboard.current.f1Key.wasPressedThisFrame)
+        {
             p_afficherAide = !p_afficherAide;
+            if (p_panneauAide != null)
+                p_panneauAide.SetActive(p_afficherAide);
+        }
 
         // F2/F3 : fonctions / heightmaps
         bool f2 = Keyboard.current.f2Key.wasPressedThisFrame;
@@ -3303,6 +3325,7 @@ public class CreationSimpleTerrain : MonoBehaviour
         );
     }
     // GUI
+    /*
     private void OnGUI()
     {
         GUI.Label(
@@ -3411,8 +3434,165 @@ public class CreationSimpleTerrain : MonoBehaviour
 
         GUILayout.EndArea();
     }
-
+*/
     // MEMOIRE
+
+private string libelleModeExecution()
+    {
+        switch (choixModeDeformation)
+        {
+            default: return p_burstActif ? "Jobs + Burst" : "Jobs + Burst (Burst INACTIF)";
+        }
+    }
+
+    private static string nomTouche(UnityEngine.InputSystem.Controls.KeyControl k)
+    {
+        return k != null ? k.displayName : "?";
+    }
+
+    private string texteInteractions()
+    {
+        Keyboard kb = Keyboard.current;
+        string avancer = kb != null ? nomTouche(kb.wKey) : "W";
+        string reculer = kb != null ? nomTouche(kb.sKey) : "S";
+        string gauche = kb != null ? nomTouche(kb.qKey) : "Q";
+        string droite = kb != null ? nomTouche(kb.eKey) : "E";
+
+        StringBuilder sb = new StringBuilder();
+        sb.AppendLine("<b>INTERACTIONS</b>");
+        sb.AppendLine("F1 : afficher / masquer cette fenetre");
+        sb.AppendLine("F2 : fonction suivante");
+        sb.AppendLine("F3 : HeightMap suivante");
+        sb.AppendLine("F4 : HeightMap asynchrone");
+        sb.AppendLine("F5 : comparer C# / Jobs / Jobs+Burst (console)");
+        sb.AppendLine("F6 : memoire + test de charge (console)");
+        sb.AppendLine("F10 : afficher les normales");
+        sb.AppendLine("F11 x2 : terrain plat");
+        sb.AppendLine("F12 : calcul des normales");
+        sb.AppendLine("D : changer de distance");
+        sb.AppendLine("");
+        sb.AppendLine("<b>CAMERA / TERRAIN</b>");
+        sb.AppendLine(avancer + " / " + reculer + " : avancer / reculer   |   " + gauche + " / " + droite + " : gauche / droite");
+        sb.AppendLine("PageUp / PageDown : monter / descendre");
+        sb.AppendLine("Molette seule : avancer / reculer");
+        sb.AppendLine("Clic milieu + souris : orienter la camera");
+        sb.AppendLine("R (maintenu) : tourner le terrain");
+        sb.AppendLine("Fleches : etendre le terrain");
+        sb.AppendLine("C : un materiau par chunk pendant 3 s");
+        sb.AppendLine("");
+        sb.AppendLine("<b>SCULPTURE</b>");
+        sb.AppendLine("Clic gauche : elever   |   Clic droit : creuser");
+        sb.AppendLine("Molette + Maj : intensite");
+        sb.AppendLine("Molette + Ctrl : rayon");
+        sb.AppendLine("Molette + Alt : pattern suivant / precedent");
+        return sb.ToString();
+    }
+
+    private Text creerTexte(Transform parent, string nom, Font police, int taille,
+                            Vector2 ancreMin, Vector2 ancreMax, Vector2 offsetMin, Vector2 offsetMax)
+    {
+        GameObject go = new GameObject(nom);
+        go.transform.SetParent(parent, false);
+        Text t = go.AddComponent<Text>();
+        t.font = police;
+        t.fontSize = taille;
+        t.color = Color.white;
+        t.supportRichText = true;
+        t.raycastTarget = false;
+        t.horizontalOverflow = HorizontalWrapMode.Wrap;
+        t.verticalOverflow = VerticalWrapMode.Truncate;
+        t.alignment = TextAnchor.UpperLeft;
+        RectTransform rt = t.rectTransform;
+        rt.anchorMin = ancreMin;
+        rt.anchorMax = ancreMax;
+        rt.offsetMin = offsetMin;
+        rt.offsetMax = offsetMax;
+        return t;
+    }
+
+    private void creerUI()
+    {
+        Font police = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (police == null)
+            police = Font.CreateDynamicFontFromOSFont("Arial", 16);
+
+        GameObject racine = new GameObject("UI_Terrain");
+        racine.transform.SetParent(transform, false);
+        Canvas canvas = racine.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        CanvasScaler scaler = racine.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        p_texteFps = creerTexte(racine.transform, "FPS", police, 22,
+            new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(10f, -35f), new Vector2(400f, -5f));
+
+        p_panneauAide = new GameObject("FenetreF1");
+        p_panneauAide.transform.SetParent(racine.transform, false);
+        Image fond = p_panneauAide.AddComponent<Image>();
+        fond.color = new Color(0f, 0f, 0f, 0.8f);
+        fond.raycastTarget = false;
+        RectTransform rp = fond.rectTransform;
+        rp.anchorMin = new Vector2(0.5f, 0.5f);
+        rp.anchorMax = new Vector2(0.5f, 0.5f);
+        rp.pivot = new Vector2(0.5f, 0.5f);
+        rp.sizeDelta = new Vector2(1600f, 960f);
+
+        p_texteGauche = creerTexte(p_panneauAide.transform, "Etat", police, 17,
+            new Vector2(0f, 0f), new Vector2(0.52f, 1f), new Vector2(20f, 15f), new Vector2(-10f, -15f));
+        p_texteDroite = creerTexte(p_panneauAide.transform, "Interactions", police, 17,
+            new Vector2(0.52f, 0f), new Vector2(1f, 1f), new Vector2(10f, 15f), new Vector2(-20f, -15f));
+
+        p_texteDroite.text = texteInteractions();
+        p_panneauAide.SetActive(false);
+    }
+
+    private void mettreAJourUI()
+    {
+        if (p_texteFps == null || Time.unscaledTime < p_prochaineMajUI)
+            return;
+        p_prochaineMajUI = Time.unscaledTime + 0.25f;
+
+        p_texteFps.text = "FPS : " + p_fps.ToString("F0") + "   |   " + libelleModeExecution();
+
+        if (!p_panneauAide.activeSelf || chunkBase == null)
+            return;
+
+        StringBuilder sb = p_sb;
+        sb.Clear();
+
+        long totVertices = 0, totTriangles = 0, totMemoire = 0;
+        foreach (Chunk c in p_chunks.Values)
+        {
+            totVertices += c.vertices.Length;
+            totTriangles += c.triangles.Length / 3;
+            totMemoire += (c.vertices.Length * 12L + c.normals.Length * 12L + c.uv.Length * 8L + c.triangles.Length * 4L) / 1024L;
+        }
+
+        sb.AppendLine("<b>INFORMATIONS DU MAILLAGE (chunk 0,0)</b>");
+        sb.AppendLine("Vertices : " + p_vertices.Length + "   |   Triangles : " + p_triangles.Length / 3);
+        sb.AppendLine("Resolution : " + chunkBase.res + " x " + chunkBase.res + "   |   Memoire : " + calculerMemoireMesh() + " Ko");
+        sb.AppendLine("");
+        sb.AppendLine("<b>CHUNKS</b>");
+        sb.AppendLine("Grille : " + (gridMax.x - gridMin.x + 1) + " x " + (gridMax.y - gridMin.y + 1) + "   |   Chunks : " + p_chunks.Count);
+        sb.AppendLine("Total : " + totVertices + " vertices, " + totTriangles + " triangles, " + totMemoire + " Ko");
+        sb.AppendLine("");
+        sb.AppendLine("<b>PARAMETRES EN COURS</b>");
+        sb.AppendLine("Mode : " + choixModeDeformation + "   |   Fonction : " + typeFonction + "   |   HeightMap n° " + numTexture);
+        sb.AppendLine("Normales : " + modeNormale + "   |   Distance : " + distanceUtilisee);
+        sb.AppendLine("Pattern n° " + p_indexPatternCourant + " | Intensite : " + intensiteMaxDeformation + " | Rayon : " + rayonDeformation);
+
+        if (p_derniersResultats.Count > 0)
+        {
+            sb.AppendLine("");
+            sb.AppendLine("<b>DERNIERES MESURES F5</b>");
+            foreach (string ligne in p_derniersResultats)
+                sb.AppendLine(ligne);
+        }
+
+        p_texteGauche.text = sb.ToString();
+    }
 
     private long calculerMemoireMesh()
     {
